@@ -16,7 +16,7 @@ from .exceptions import (
 class WoosCloudClient:
     """Low-level HTTP client for WoosCloud API"""
     
-    def __init__(self, api_key: str, base_url: str = "https://wooscloud.up.railway.app"):
+    def __init__(self, api_key: str, base_url: str = "https://https://wooscloud-storage-production.up.railway.app"):
         """
         Initialize WoosCloud client
         
