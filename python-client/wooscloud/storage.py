@@ -63,35 +63,58 @@ class WoosStorage:
     def find(
         self,
         collection: str,
-        limit: int = 100,
+        query: Optional[Dict[str, Any]] = None,
+        limit: int = 10,
         skip: int = 0
     ) -> List[StorageData]:
-        """
-        Find data in a collection
-        
-        Args:
-            collection: Collection name
-            limit: Maximum number of results (1-1000)
-            skip: Number of results to skip
-        
-        Returns:
-            List of StorageData objects
-        
-        Example:
-            >>> products = storage.find("products", limit=10)
-            >>> for product in products:
-            ...     print(product.data)
-        """
-        if not collection:
-            raise ValidationError("Collection name is required")
-        
-        response = self.client.get("/api/storage/list", params={
+        """Find multiple data entries with R2 support"""
+        params = {
             "collection": collection,
             "limit": limit,
             "skip": skip
-        })
-        
-        return [StorageData(**item) for item in response["data"]]
+        }
+    
+        if query:
+            params["query"] = query
+    
+        response = self.client.get("/api/storage/list", params=params)
+    
+        items = []
+        data_list = response.get("data", [])
+    
+        for item in data_list:
+            try:
+                # Handle both formats: direct item or wrapped in metadata
+                if isinstance(item, dict):
+                    # Check if it's wrapped format or direct format
+                    if "data" in item and isinstance(item["data"], dict):
+                        # Standard format
+                        items.append(StorageData(
+                            id=item.get("id", ""),
+                            collection=item.get("collection", ""),
+                            data=item.get("data", {}),
+                            size=item.get("size", 0),
+                            storage_type=item.get("storage_type", "mongodb"),
+                            created_at=item.get("created_at"),
+                            updated_at=item.get("updated_at")
+                        ))
+                    else:
+                        # Item might be the data itself with _id
+                        items.append(StorageData(
+                            id=str(item.get("_id", item.get("id", ""))),
+                            collection=collection,
+                            data=item,
+                            size=len(str(item)),
+                            storage_type=item.get("storage_type", "mongodb"),
+                            created_at=item.get("created_at"),
+                            updated_at=item.get("updated_at")
+                        ))
+            except Exception as e:
+                # Skip items that can't be parsed
+                print(f"Warning: Could not parse item: {e}")
+                continue
+     
+        return items
     
     def find_one(self, data_id: str) -> StorageData:
         """
@@ -117,6 +140,7 @@ class WoosStorage:
             collection=response["collection"],
             data=response["data"],
             size=0,  # Not returned by read endpoint
+            storage_type=response.get("storage_type", "mongodb"),
             created_at=response["created_at"],
             updated_at=response["updated_at"]
         )

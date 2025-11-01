@@ -26,6 +26,8 @@ try:
     result = response.json()
     print(f"   Database: {result.get('database', 'unknown')}")
     print(f"   Environment: {result.get('environment', 'unknown')}")
+    print(f"   R2 Enabled: {result.get('r2_enabled', False)}")
+    print(f"   Storage: {result.get('storage', 'unknown')}")
 except Exception as e:
     print(f"❌ Error: {e}")
 
@@ -60,7 +62,6 @@ try:
             print("   ⚠️  R2 is disabled")
     else:
         print(f"❌ Status: {response.status_code}")
-        print(f"   {response.text}")
         
 except Exception as e:
     print(f"❌ Error: {e}")
@@ -94,7 +95,6 @@ try:
         small_id = result.get('id')
     else:
         print(f"❌ Status: {response.status_code}")
-        print(f"   {response.text}")
         small_id = None
         
 except Exception as e:
@@ -137,7 +137,6 @@ try:
         large_id = result.get('id')
     else:
         print(f"❌ Status: {response.status_code}")
-        print(f"   {response.text}")
         large_id = None
         
 except Exception as e:
@@ -178,8 +177,9 @@ if small_id and large_id:
     print("✅ All tests passed!")
     print(f"   Small data ID: {small_id}")
     print(f"   Large data ID: {large_id}")
-    print("\n🎉 WoosCloud Storage is working on Railway!")
+    print("\n🎉 WoosCloud Storage with R2 is working on Railway!")
     print(f"\n📱 API Docs: {RAILWAY_URL}/api/docs")
+    print(f"🌐 Health: {RAILWAY_URL}/health")
 else:
     print("⚠️  Some tests failed")
 

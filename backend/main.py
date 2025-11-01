@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import connect_db, close_db
 from app.config import settings
 
+from app.routers import auth_router, storage_router, api_key_router, file_router
 # Import routers
 from app.routers import auth_router, storage_router, api_key_router
 
@@ -45,6 +46,8 @@ else:
 
 # Store R2 instance for routers to use
 storage_router.r2_storage = r2_storage_instance
+
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -124,6 +127,13 @@ app.include_router(
     prefix="/api/storage",
     tags=["Storage"]
 )
+
+app.include_router(
+    file_router.router,
+    prefix="/api/files",
+    tags=["Files"]
+)
+
 
 # API info endpoint
 @app.get("/api/info")

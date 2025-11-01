@@ -8,6 +8,7 @@ from botocore.client import Config
 from typing import Optional, Dict, Any
 import json
 import logging
+from typing import BinaryIO
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -173,3 +174,90 @@ class R2Storage:
         except Exception as e:
             logger.error(f"Failed to get object size: {e}")
             return 0
+        
+    def upload_file(self, file_obj: BinaryIO, key: str, content_type: str = None) -> str:
+        """
+        Upload file to R2
+        
+        Args:
+            file_obj: File-like object
+            key: Object key in R2
+            content_type: MIME type
+        
+        Returns:
+            R2 URL
+        """
+        extra_args = {}
+        if content_type:
+            extra_args['ContentType'] = content_type
+        
+        self.client.upload_fileobj(
+            file_obj,
+            self.bucket_name,
+            key,
+            ExtraArgs=extra_args
+        )
+        
+        return self.get_url(key)
+    
+    def download_file(self, key: str) -> bytes:
+        """
+        Download file from R2
+        
+        Args:
+            key: Object key in R2
+        
+        Returns:
+            File content as bytes
+        """
+        response = self.client.get_object(
+            Bucket=self.bucket_name,
+            Key=key
+        )
+        
+        return response['Body'].read()
+    
+    def delete_file(self, key: str) -> bool:
+        """
+        Delete file from R2
+        
+        Args:
+            key: Object key in R2
+        
+        Returns:
+            True if successful
+        """
+        try:
+            self.client.delete_object(
+                Bucket=self.bucket_name,
+                Key=key
+            )
+            return True
+        except Exception as e:
+            print(f"Error deleting from R2: {e}")
+            return False
+    
+    def get_url(self, key: str) -> str:
+        """
+        Get R2 URL for file
+    
+        Args:
+            key: Object key in R2
+    
+        Returns:
+            Public URL (presigned URL for R2)
+        """
+        try:
+            # Generate presigned URL (valid for 7 days)
+            url = self.client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': key
+                },
+                ExpiresIn=604800  # 7 days
+            )
+            return url
+        except Exception as e:
+            # Fallback: return basic URL structure
+            return f"r2://{self.bucket_name}/{key}"

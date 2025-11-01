@@ -11,7 +11,7 @@ long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="wooscloud",
-    version="1.0.0",
+    version="1.1.0",
     author="WoosCloud Team",
     author_email="support@woos-ai.com",
     description="Simple, powerful, and scalable cloud storage for Python applications",

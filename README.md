@@ -57,3 +57,35 @@ Visit https://woos-ai.com/docs for full documentation.
 ## 📄 License
 
 MIT License
+
+## What's New in v1.1.0
+
+### 🎉 Cloudflare R2 Integration
+- Automatic routing: Small data (< 100KB) → MongoDB, Large data (≥ 100KB) → R2
+- New `storage_type` field in responses: `'mongodb'` or `'r2'`
+- Enhanced stats with R2 status and distribution
+
+### API Updates
+- `stats()` now includes `r2_enabled` and `storage_distribution`
+- `find_one()` and `find()` return `storage_type` for each item
+- Supports multi-cloud storage seamlessly
+
+### Example
+```python
+from wooscloud import WoosStorage
+
+storage = WoosStorage(api_key="your_api_key")
+
+# Save data (automatically routed)
+data_id = storage.save("collection", {"key": "value"})
+
+# Get storage stats
+stats = storage.stats()
+print(f"R2 Enabled: {stats.r2_enabled}")
+print(f"MongoDB items: {stats.mongodb_items}")
+print(f"R2 items: {stats.r2_items}")
+
+# Check where data is stored
+item = storage.find_one(data_id)
+print(f"Storage type: {item.storage_type}")  # 'mongodb' or 'r2'
+```
