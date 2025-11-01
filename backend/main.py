@@ -1,7 +1,17 @@
 """
 WoosCloud Storage Backend API
-FastAPI + MongoDB
+FastAPI + MongoDB + Cloudflare R2
 """
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s:     %(message)s'
+)
+
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import connect_db, close_db
@@ -10,10 +20,36 @@ from app.config import settings
 # Import routers
 from app.routers import auth_router, storage_router, api_key_router
 
+# Initialize R2 storage
+from app.services.r2_storage import R2Storage
+
+r2_storage_instance = None
+if settings.R2_ENABLED:
+    try:
+        logger.info("🔧 Initializing R2 storage...")
+        r2_storage_instance = R2Storage(
+            account_id=settings.R2_ACCOUNT_ID,
+            access_key=settings.R2_ACCESS_KEY,
+            secret_key=settings.R2_SECRET_KEY,
+            bucket_name=settings.R2_BUCKET_NAME
+        )
+        logger.info("✅ R2 storage initialized successfully")
+        logger.info(f"   Bucket: {settings.R2_BUCKET_NAME}")
+        logger.info(f"   Account: {settings.R2_ACCOUNT_ID}")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize R2: {e}")
+        logger.error(f"   R2 will be disabled")
+        r2_storage_instance = None
+else:
+    logger.info("ℹ️  R2 storage disabled (using MongoDB only)")
+
+# Store R2 instance for routers to use
+storage_router.r2_storage = r2_storage_instance
+
 # Create FastAPI app
 app = FastAPI(
     title="WoosCloud Storage API",
-    description="Simple, powerful, and scalable cloud storage service",
+    description="Simple, powerful, and scalable cloud storage service with R2 integration",
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc"
@@ -33,13 +69,19 @@ app.add_middleware(
 async def startup_db_client():
     """Connect to MongoDB on startup"""
     await connect_db()
-    print("🚀 WoosCloud Storage API started")
+    logger.info("🚀 WoosCloud Storage API started")
+    
+    # Log R2 status
+    if r2_storage_instance:
+        logger.info("💾 Storage: MongoDB + Cloudflare R2")
+    else:
+        logger.info("💾 Storage: MongoDB only")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     """Close MongoDB connection on shutdown"""
     await close_db()
-    print("👋 WoosCloud Storage API stopped")
+    logger.info("👋 WoosCloud Storage API stopped")
 
 # Health check endpoints
 @app.get("/")
@@ -49,6 +91,7 @@ async def root():
         "service": "WoosCloud Storage API",
         "version": "1.0.0",
         "status": "healthy",
+        "r2_enabled": settings.R2_ENABLED,
         "docs": "/api/docs"
     }
 
@@ -58,7 +101,9 @@ async def health_check():
     return {
         "status": "healthy",
         "database": "connected",
-        "environment": settings.ENVIRONMENT
+        "environment": settings.ENVIRONMENT,
+        "r2_enabled": settings.R2_ENABLED,
+        "storage": "MongoDB + R2" if settings.R2_ENABLED else "MongoDB only"
     }
 
 # Include routers
@@ -87,6 +132,8 @@ async def api_info():
     return {
         "name": "WoosCloud Storage API",
         "version": "1.0.0",
+        "r2_enabled": settings.R2_ENABLED,
+        "storage_provider": "MongoDB + Cloudflare R2" if settings.R2_ENABLED else "MongoDB",
         "endpoints": {
             "auth": "/api/auth",
             "keys": "/api/keys",

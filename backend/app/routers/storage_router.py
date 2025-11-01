@@ -1,12 +1,12 @@
 """
 Storage router
-Handles CRUD operations for cloud storage
-This is the core functionality of WoosCloud Storage
+Handles CRUD operations for cloud storage with R2 integration
 """
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
 from bson import ObjectId
 from typing import List, Optional, Dict, Any
+import logging
 
 from app.models.storage_data import StorageDataCreate, StorageDataUpdate, StorageStats
 from app.middleware.auth_middleware import verify_api_key
@@ -19,7 +19,15 @@ from app.services.quota_manager import (
 from app.database import get_database
 from app.config import settings
 
+# R2 imports
+from app.services.r2_storage import R2Storage
+from app.services.smart_storage_router import SmartStorageRouter
+
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Initialize R2 (if enabled)
+r2_storage = None
 
 @router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def create_data(
@@ -28,21 +36,18 @@ async def create_data(
 ):
     """
     Create new data entry
-    
-    Requires valid API key
-    
-    Example:
-        POST /api/storage/create
-        Headers: X-API-Key: wai_abc123...
-        Body: {
-            "collection": "users",
-            "data": {"name": "홍길동", "age": 30}
-        }
+    Automatically routes to MongoDB or R2 based on size
     """
     db = await get_database()
     
     # Check API calls quota
     await check_api_calls_quota(current_user["_id"])
+    
+    # Initialize smart router
+    smart_router = SmartStorageRouter(
+        mongodb_collection=db.storage_data,
+        r2_storage=r2_storage
+    )
     
     # Calculate data size
     data_size = len(str(storage_data.data))
@@ -50,32 +55,34 @@ async def create_data(
     # Check storage quota
     await check_storage_quota(current_user["_id"], data_size)
     
-    # Create storage document
-    storage_doc = {
-        "user_id": current_user["_id"],
-        "collection": storage_data.collection,
-        "data": storage_data.data,
-        "size": data_size,
-        "provider": "mongodb",  # Phase 1: MongoDB only
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
-    
-    result = await db.storage_data.insert_one(storage_doc)
-    
-    # Update storage usage
-    await update_storage_usage(current_user["_id"], data_size)
-    
-    # Increment API calls counter
-    await increment_api_calls(current_user["_id"])
-    
-    return {
-        "success": True,
-        "id": str(result.inserted_id),
-        "message": "Data created successfully",
-        "collection": storage_data.collection,
-        "size": data_size
-    }
+    try:
+        # Save using smart router
+        document = await smart_router.save(
+            user_id=str(current_user["_id"]),
+            collection=storage_data.collection,
+            data=storage_data.data
+        )
+        
+        # Update storage usage
+        await update_storage_usage(current_user["_id"], document["size"])
+        
+        # Increment API calls counter
+        await increment_api_calls(current_user["_id"])
+        
+        return {
+            "success": True,
+            "id": str(document["_id"]),
+            "storage_type": document["storage_type"],
+            "size": document["size"],
+            "created_at": document["created_at"].isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 @router.get("/read/{data_id}", response_model=dict)
 async def read_data(
@@ -84,8 +91,7 @@ async def read_data(
 ):
     """
     Read data by ID
-    
-    Requires valid API key
+    Automatically retrieves from MongoDB or R2
     """
     db = await get_database()
     
@@ -100,16 +106,31 @@ async def read_data(
             detail="Invalid data ID format"
         )
     
-    # Find data (only user's own data)
-    storage_data = await db.storage_data.find_one({
+    # Initialize smart router
+    smart_router = SmartStorageRouter(
+        mongodb_collection=db.storage_data,
+        r2_storage=r2_storage
+    )
+    
+    # Get metadata
+    doc = await db.storage_data.find_one({
         "_id": data_object_id,
-        "user_id": current_user["_id"]
+        "user_id": str(current_user["_id"])
     })
     
-    if not storage_data:
+    if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data not found"
+        )
+    
+    # Get actual data
+    data = await smart_router.get(data_id)
+    
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve data"
         )
     
     # Increment API calls counter
@@ -117,11 +138,13 @@ async def read_data(
     
     return {
         "success": True,
-        "id": str(storage_data["_id"]),
-        "collection": storage_data["collection"],
-        "data": storage_data["data"],
-        "created_at": storage_data["created_at"].isoformat(),
-        "updated_at": storage_data["updated_at"].isoformat()
+        "id": str(doc["_id"]),
+        "collection": doc["collection"],
+        "data": data,
+        "storage_type": doc.get("storage_type", "mongodb"),
+        "size": doc["size"],
+        "created_at": doc["created_at"].isoformat(),
+        "updated_at": doc["updated_at"].isoformat()
     }
 
 @router.get("/list", response_model=dict)
@@ -133,12 +156,6 @@ async def list_data(
 ):
     """
     List all data (with pagination and filtering)
-    
-    Requires valid API key
-    
-    Example:
-        GET /api/storage/list?collection=users&limit=10&skip=0
-        Headers: X-API-Key: wai_abc123...
     """
     db = await get_database()
     
@@ -146,11 +163,11 @@ async def list_data(
     await check_api_calls_quota(current_user["_id"])
     
     # Build query
-    query = {"user_id": current_user["_id"]}
+    query = {"user_id": str(current_user["_id"])}
     if collection:
         query["collection"] = collection
     
-    # Get data
+    # Get data (metadata only)
     cursor = db.storage_data.find(query).skip(skip).limit(limit).sort("created_at", -1)
     data_list = await cursor.to_list(length=limit)
     
@@ -160,14 +177,22 @@ async def list_data(
     # Format response
     formatted_data = []
     for item in data_list:
-        formatted_data.append({
+        formatted_item = {
             "id": str(item["_id"]),
             "collection": item["collection"],
-            "data": item["data"],
             "size": item["size"],
+            "storage_type": item.get("storage_type", "mongodb"),
             "created_at": item["created_at"].isoformat(),
             "updated_at": item["updated_at"].isoformat()
-        })
+        }
+        
+        # Include data if stored in MongoDB
+        if item.get("storage_type") == "mongodb":
+            formatted_item["data"] = item.get("data")
+        else:
+            formatted_item["data_preview"] = item.get("data_preview", "")
+        
+        formatted_data.append(formatted_item)
     
     # Increment API calls counter
     await increment_api_calls(current_user["_id"])
@@ -189,8 +214,7 @@ async def update_data(
 ):
     """
     Update data by ID
-    
-    Requires valid API key
+    Automatically updates in MongoDB or R2
     """
     db = await get_database()
     
@@ -205,20 +229,20 @@ async def update_data(
             detail="Invalid data ID format"
         )
     
-    # Find existing data
-    existing_data = await db.storage_data.find_one({
+    # Check ownership
+    doc = await db.storage_data.find_one({
         "_id": data_object_id,
-        "user_id": current_user["_id"]
+        "user_id": str(current_user["_id"])
     })
     
-    if not existing_data:
+    if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data not found"
         )
     
     # Calculate size difference
-    old_size = existing_data["size"]
+    old_size = doc["size"]
     new_size = len(str(update_data.data))
     size_diff = new_size - old_size
     
@@ -226,17 +250,20 @@ async def update_data(
     if size_diff > 0:
         await check_storage_quota(current_user["_id"], size_diff)
     
-    # Update data
-    await db.storage_data.update_one(
-        {"_id": data_object_id},
-        {
-            "$set": {
-                "data": update_data.data,
-                "size": new_size,
-                "updated_at": datetime.utcnow()
-            }
-        }
+    # Initialize smart router
+    smart_router = SmartStorageRouter(
+        mongodb_collection=db.storage_data,
+        r2_storage=r2_storage
     )
+    
+    # Update
+    success = await smart_router.update(data_id, update_data.data)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update data"
+        )
     
     # Update storage usage
     await update_storage_usage(current_user["_id"], size_diff)
@@ -246,7 +273,6 @@ async def update_data(
     
     return {
         "success": True,
-        "message": "Data updated successfully",
         "id": data_id,
         "size_change": size_diff
     }
@@ -258,8 +284,7 @@ async def delete_data(
 ):
     """
     Delete data by ID
-    
-    Requires valid API key
+    Automatically deletes from MongoDB or R2
     """
     db = await get_database()
     
@@ -274,40 +299,49 @@ async def delete_data(
             detail="Invalid data ID format"
         )
     
-    # Find and verify ownership
-    storage_data = await db.storage_data.find_one({
+    # Check ownership
+    doc = await db.storage_data.find_one({
         "_id": data_object_id,
-        "user_id": current_user["_id"]
+        "user_id": str(current_user["_id"])
     })
     
-    if not storage_data:
+    if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data not found"
         )
     
-    # Delete data
-    await db.storage_data.delete_one({"_id": data_object_id})
+    # Initialize smart router
+    smart_router = SmartStorageRouter(
+        mongodb_collection=db.storage_data,
+        r2_storage=r2_storage
+    )
+    
+    # Delete
+    success = await smart_router.delete(data_id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete data"
+        )
     
     # Update storage usage (decrease)
-    await update_storage_usage(current_user["_id"], -storage_data["size"])
+    await update_storage_usage(current_user["_id"], -doc["size"])
     
     # Increment API calls counter
     await increment_api_calls(current_user["_id"])
     
     return {
         "success": True,
-        "message": "Data deleted successfully",
         "id": data_id,
-        "freed_space": storage_data["size"]
+        "freed_space": doc["size"]
     }
 
 @router.get("/stats", response_model=dict)
 async def get_stats(current_user: dict = Depends(verify_api_key)):
     """
     Get storage usage statistics
-    
-    Requires valid API key
     """
     db = await get_database()
     
@@ -315,12 +349,23 @@ async def get_stats(current_user: dict = Depends(verify_api_key)):
     user = await db.users.find_one({"_id": current_user["_id"]})
     
     storage_used = user.get("storage_used", 0)
-    storage_limit = user.get("storage_limit", settings.FREE_STORAGE_LIMIT)
+    storage_limit = user.get("storage_limit", 500 * 1024 * 1024)  # 500MB default
     api_calls_count = user.get("api_calls_count", 0)
-    api_calls_limit = user.get("api_calls_limit", settings.FREE_API_CALLS_LIMIT)
+    api_calls_limit = user.get("api_calls_limit", 10000)  # 10K default
     
     # Calculate percentage
     storage_percent = (storage_used / storage_limit * 100) if storage_limit > 0 else 0
+    
+    # Count by storage type
+    mongodb_count = await db.storage_data.count_documents({
+        "user_id": str(current_user["_id"]),
+        "storage_type": "mongodb"
+    })
+    
+    r2_count = await db.storage_data.count_documents({
+        "user_id": str(current_user["_id"]),
+        "storage_type": "r2"
+    })
     
     return {
         "success": True,
@@ -335,9 +380,15 @@ async def get_stats(current_user: dict = Depends(verify_api_key)):
             "api_calls": {
                 "count": api_calls_count,
                 "limit": api_calls_limit,
-                "remaining": max(0, api_calls_limit - api_calls_count) if user.get("plan") == "free" else "unlimited"
+                "remaining": max(0, api_calls_limit - api_calls_count)
             },
-            "plan": user.get("plan", "free")
+            "storage_distribution": {
+                "mongodb": mongodb_count,
+                "r2": r2_count,
+                "total": mongodb_count + r2_count
+            },
+            "plan": user.get("plan", "free"),
+            "r2_enabled": settings.R2_ENABLED
         }
     }
 
@@ -345,18 +396,22 @@ async def get_stats(current_user: dict = Depends(verify_api_key)):
 async def list_collections(current_user: dict = Depends(verify_api_key)):
     """
     List all collections with statistics
-    
-    Requires valid API key
     """
     db = await get_database()
     
     # Aggregate collections
     pipeline = [
-        {"$match": {"user_id": current_user["_id"]}},
+        {"$match": {"user_id": str(current_user["_id"])}},
         {"$group": {
             "_id": "$collection",
             "count": {"$sum": 1},
-            "total_size": {"$sum": "$size"}
+            "total_size": {"$sum": "$size"},
+            "mongodb_count": {
+                "$sum": {"$cond": [{"$eq": ["$storage_type", "mongodb"]}, 1, 0]}
+            },
+            "r2_count": {
+                "$sum": {"$cond": [{"$eq": ["$storage_type", "r2"]}, 1, 0]}
+            }
         }},
         {"$sort": {"count": -1}}
     ]
@@ -371,7 +426,9 @@ async def list_collections(current_user: dict = Depends(verify_api_key)):
             "name": col["_id"],
             "count": col["count"],
             "size": col["total_size"],
-            "size_kb": round(col["total_size"] / 1024, 2)
+            "size_kb": round(col["total_size"] / 1024, 2),
+            "mongodb_count": col.get("mongodb_count", 0),
+            "r2_count": col.get("r2_count", 0)
         })
     
     return {

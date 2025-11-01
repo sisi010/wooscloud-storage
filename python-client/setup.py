@@ -17,7 +17,7 @@ setup(
     description="Simple, powerful, and scalable cloud storage for Python applications",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/wooscloud/python-client",
+    url="https://github.com/sisi010/wooscloud-storage",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 5 - Production/Stable",
@@ -37,8 +37,8 @@ setup(
     ],
     keywords="cloud storage database api rest wooscloud",
     project_urls={
-        "Documentation": "https://woos-ai.com/docs",
-        "Source": "https://github.com/wooscloud/python-client",
-        "Bug Reports": "https://github.com/wooscloud/python-client/issues",
+        "Documentation": "https://wooscloud-storage-production.up.railway.app/api/docs",
+        "Source": "https://github.com/sisi010/wooscloud-storage",
+        "Bug Reports": "https://github.com/sisi010/wooscloud-storage/issues",
     },
 )
