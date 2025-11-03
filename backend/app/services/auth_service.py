@@ -28,17 +28,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(truncated_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
-    """
-    Hash a password
-    
-    Args:
-        password: Plain text password
-    
-    Returns:
-        Hashed password
-    """
-    # Truncate password to 72 bytes for bcrypt
-    truncated_password = _truncate_password(password)
+    """Hash a password (truncate to 72 bytes for bcrypt)"""
+    # bcrypt has a 72 byte limit
+    password_bytes = password.encode('utf-8')[:72]
+    truncated_password = password_bytes.decode('utf-8', errors='ignore')
     return pwd_context.hash(truncated_password)
 
 def _truncate_password(password: str) -> str:

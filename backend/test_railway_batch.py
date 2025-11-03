@@ -1,7 +1,7 @@
 import requests
 
 # Your Railway URL
-API_URL = "https://woosai-backend-production.up.railway.app"
+API_URL = "https://wooscloud-storage-production.up.railway.app"
 
 print("🧪 Testing Batch Operations on Railway")
 print("=" * 60)
@@ -15,15 +15,21 @@ login_response = requests.post(
     json={"email": email, "password": password}
 )
 
+
+
 if login_response.status_code == 200:
-    token = login_response.json()["access_token"]
+    token = login_response.json()["token"]
     print("✅ Logged in!")
     
     # Get API keys
+    print("\n📝 Getting API keys...")
     keys_response = requests.get(
         f"{API_URL}/api/keys/my-keys",
         headers={"Authorization": f"Bearer {token}"}
     )
+    
+    print(f"Keys status: {keys_response.status_code}")
+    print(f"Keys response: {keys_response.json()}")
     
     if keys_response.status_code == 200 and keys_response.json().get("api_keys"):
         api_key = keys_response.json()["api_keys"][0]["key"]
