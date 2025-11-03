@@ -26,7 +26,7 @@ from app.services.smart_storage_router import SmartStorageRouter
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Initialize R2 (if enabled)
+# R2 storage will be set by main.py
 r2_storage = None
 
 @router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)

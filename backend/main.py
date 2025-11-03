@@ -17,9 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import connect_db, close_db
 from app.config import settings
 
-from app.routers import auth_router, storage_router, api_key_router, file_router
-# Import routers
-from app.routers import auth_router, storage_router, api_key_router
+# Import routers (separately to avoid circular imports)
+from app.routers import auth_router
+from app.routers import storage_router  
+from app.routers import api_key_router
+from app.routers import file_router
+from app.routers import batch_router
 
 # Initialize R2 storage
 from app.services.r2_storage import R2Storage
@@ -46,6 +49,8 @@ else:
 
 # Store R2 instance for routers to use
 storage_router.r2_storage = r2_storage_instance
+file_router.r2_storage = r2_storage_instance
+batch_router.r2_storage = r2_storage_instance
 
 
 
@@ -132,6 +137,12 @@ app.include_router(
     file_router.router,
     prefix="/api/files",
     tags=["Files"]
+)
+
+app.include_router(
+    batch_router.router,
+    prefix="/api/batch",
+    tags=["Batch Operations"]
 )
 
 

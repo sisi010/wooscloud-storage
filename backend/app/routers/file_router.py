@@ -20,14 +20,13 @@ from app.services.quota_manager import (
 )
 from app.database import get_database
 
-# Import R2 storage from main.py
-from app.routers import storage_router
-
 router = APIRouter()
+
+# R2 storage will be set by main.py
+r2_storage = None
 
 def get_file_storage_service() -> FileStorageService:
     """Get file storage service instance with R2"""
-    r2_storage = storage_router.r2_storage
     return FileStorageService(r2_storage=r2_storage)
 
 @router.post("/upload", response_model=FileUploadResponse, status_code=status.HTTP_201_CREATED)
