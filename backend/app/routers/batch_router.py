@@ -43,7 +43,7 @@ async def batch_create(
     """Create multiple data items in one request"""
     
     # Get user - handle both ObjectId and string
-    user_id = api_key_doc["user_id"]
+    user_id = current_user.get("_id")
     if isinstance(user_id, str):
         try:
             user_id = ObjectId(user_id)
