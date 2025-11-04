@@ -35,6 +35,12 @@ async def verify_api_key(x_api_key: str = Header(..., alias="X-API-Key")) -> dic
     user_id = api_key_doc["user_id"]
     if isinstance(user_id, str):
         user_id = ObjectId(user_id)
+    user_id = api_key_doc["user_id"]
+    if isinstance(user_id, str):
+        try:
+            user_id = ObjectId(user_id)
+        except:
+            pass
     user = await db.users.find_one({"_id": user_id})
     
     if not user or not user.get("is_active", True):
