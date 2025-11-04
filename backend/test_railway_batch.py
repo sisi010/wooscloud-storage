@@ -17,22 +17,55 @@ login_response = requests.post(
 
 
 
+print(f"Login status: {login_response.status_code}")
+login_data = login_response.json()
+print(f"Login response: {login_data}")
+
 if login_response.status_code == 200:
-    token = login_response.json()["token"]
+    # Handle both 'token' and 'access_token' keys
+    token = login_data.get("token") or login_data.get("access_token")
+    
+    if not token:
+        print("❌ No token in response!")
+        print(f"Keys: {login_data.keys()}")
+        exit(1)
+    
     print("✅ Logged in!")
     
-    # Get API keys
-    print("\n📝 Getting API keys...")
-    keys_response = requests.get(
-        f"{API_URL}/api/keys/my-keys",
+    # Get or create API key
+print("\n📝 Getting API keys...")
+keys_response = requests.get(
+    f"{API_URL}/api/keys/my-keys",
+    headers={"Authorization": f"Bearer {token}"}
+)
+
+print(f"Keys status: {keys_response.status_code}")
+keys_data = keys_response.json()
+print(f"Keys response: {keys_data}")
+
+# Check if user has API keys
+if keys_data.get("keys") and len(keys_data["keys"]) > 0:
+    api_key = keys_data["keys"][0]["key"]
+    print(f"✅ Using existing key: {api_key[:30]}...")
+else:
+    # Create new API key
+    print("\n🔑 Creating new API key...")
+    create_key_response = requests.post(
+        f"{API_URL}/api/keys/generate?name=RailwayBatchTestKey",
         headers={"Authorization": f"Bearer {token}"}
     )
     
-    print(f"Keys status: {keys_response.status_code}")
-    print(f"Keys response: {keys_response.json()}")
+    print(f"Create key status: {create_key_response.status_code}")
     
-    if keys_response.status_code == 200 and keys_response.json().get("api_keys"):
-        api_key = keys_response.json()["api_keys"][0]["key"]
+    if create_key_response.status_code == 201:
+        key_data = create_key_response.json()
+        api_key = key_data.get("api_key") or key_data.get("key")
+        print(f"✅ New API key created: {api_key[:30]}...")
+    else:
+        print(f"❌ Failed to create key: {create_key_response.text}")
+        exit(1)
+
+if api_key:
         
         # Test batch create
         batch_response = requests.post(
