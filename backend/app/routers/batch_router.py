@@ -43,7 +43,14 @@ async def batch_create(
     """Create multiple data items in one request"""
     
     # Convert ObjectId to string at the start
-    user_id = str(current_user["_id"])
+    # Get user_id safely
+    user_id = current_user.get("_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    user_id = str(user_id)
     
     # Check API calls quota
     await check_api_calls_quota(user_id)
@@ -130,7 +137,14 @@ async def batch_read(
 ):
     """Read multiple data items in one request"""
     
-    user_id = str(current_user["_id"])
+    
+    user_id = current_user.get("_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    user_id = str(user_id)
     
     # Check API calls quota
     await check_api_calls_quota(user_id)
@@ -196,7 +210,14 @@ async def batch_update(
 ):
     """Update multiple data items in one request"""
     
-    user_id = str(current_user["_id"])
+   
+    user_id = current_user.get("_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    user_id = str(user_id)
     
     # Check API calls quota
     await check_api_calls_quota(user_id)
@@ -268,7 +289,14 @@ async def batch_delete(
 ):
     """Delete multiple data items in one request"""
     
-    user_id = str(current_user["_id"])
+    
+    user_id = current_user.get("_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    user_id = str(user_id)
     
     # Check API calls quota
     await check_api_calls_quota(user_id)
