@@ -42,23 +42,8 @@ async def batch_create(
 ):
     """Create multiple data items in one request"""
     
-    # Get user_id from current_user
-    user_id = current_user.get("_id")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-    user_id = str(user_id)
-    
     # Check API calls quota
-    await check_api_calls_quota(user_id)
-    
-    # Get database
-    db = await get_database()
-    
-    # Check API calls quota
-    await check_api_calls_quota(user_id)
+    await check_api_calls_quota(current_user["_id"])
     
     if len(request.items) == 0:
         raise HTTPException(
@@ -89,11 +74,11 @@ async def batch_create(
             data_size = len(data_str.encode('utf-8'))
             
             # Check quota before each item
-            await check_storage_quota(user_id, data_size)
+            await check_storage_quota(current_user["_id"], data_size)
             
             # Save using smart router
             result = await smart_router.save(
-                user_id=user_id,
+                user_id=str(current_user["_id"]),
                 collection=item.collection,
                 data=item.data
             )
@@ -123,16 +108,36 @@ async def batch_create(
     
     # Update storage usage
     if total_size > 0:
-        await update_storage_usage(user_id, total_size)
+        await update_storage_usage(current_user["_id"], total_size)
     
     # Increment API calls
-    await increment_api_calls(user_id)
+    await increment_api_calls(current_user["_id"])
     
+    # Convert all ObjectIds to strings in response
+    safe_items = []
+    for item in created_items:
+        safe_item = {
+            "index": item["index"],
+            "id": str(item["id"]),
+            "collection": item["collection"],
+            "size": item["size"],
+            "storage_type": item["storage_type"]
+        }
+        safe_items.append(safe_item)
+
+    safe_failed = []
+    for item in failed_items:
+        safe_failed.append({
+            "index": item["index"],
+            "collection": item["collection"],
+            "error": str(item["error"])
+        })
+
     return BatchCreateResponse(
         success=len(failed_items) == 0,
         created=len(created_items),
-        items=created_items,
-        failed=failed_items
+        items=safe_items,
+        failed=safe_failed
     )
 
 @router.post("/read", response_model=BatchReadResponse)
@@ -142,17 +147,8 @@ async def batch_read(
 ):
     """Read multiple data items in one request"""
     
-    
-    user_id = current_user.get("_id")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-    user_id = str(user_id)
-    
     # Check API calls quota
-    await check_api_calls_quota(user_id)
+    await check_api_calls_quota(current_user["_id"])
     
     if len(request.ids) == 0:
         raise HTTPException(
@@ -178,7 +174,7 @@ async def batch_read(
     for item_id in request.ids:
         try:
             result = await smart_router.retrieve(
-                user_id=user_id,
+                user_id=str(current_user["_id"]),
                 data_id=item_id
             )
             
@@ -199,7 +195,7 @@ async def batch_read(
             not_found_ids.append(item_id)
     
     # Increment API calls
-    await increment_api_calls(user_id)
+    await increment_api_calls(current_user["_id"])
     
     return BatchReadResponse(
         success=len(not_found_ids) == 0,
@@ -215,17 +211,8 @@ async def batch_update(
 ):
     """Update multiple data items in one request"""
     
-   
-    user_id = current_user.get("_id")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-    user_id = str(user_id)
-    
     # Check API calls quota
-    await check_api_calls_quota(user_id)
+    await check_api_calls_quota(current_user["_id"])
     
     if len(request.items) == 0:
         raise HTTPException(
@@ -251,7 +238,7 @@ async def batch_update(
     for idx, item in enumerate(request.items):
         try:
             result = await smart_router.update_with_user(
-                user_id=user_id,
+                user_id=str(current_user["_id"]),
                 data_id=item.id,
                 new_data=item.data
             )
@@ -278,7 +265,7 @@ async def batch_update(
             })
     
     # Increment API calls
-    await increment_api_calls(user_id)
+    await increment_api_calls(current_user["_id"])
     
     return BatchUpdateResponse(
         success=len(failed_items) == 0,
@@ -294,17 +281,8 @@ async def batch_delete(
 ):
     """Delete multiple data items in one request"""
     
-    
-    user_id = current_user.get("_id")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-    user_id = str(user_id)
-    
     # Check API calls quota
-    await check_api_calls_quota(user_id)
+    await check_api_calls_quota(current_user["_id"])
     
     if len(request.ids) == 0:
         raise HTTPException(
@@ -331,7 +309,7 @@ async def batch_delete(
     for item_id in request.ids:
         try:
             result = await smart_router.delete_with_user(
-                user_id=user_id,
+                user_id=str(current_user["_id"]),
                 data_id=item_id
             )
             
@@ -346,10 +324,10 @@ async def batch_delete(
     
     # Update storage usage
     if total_freed > 0:
-        await update_storage_usage(user_id, -total_freed)
+        await update_storage_usage(current_user["_id"], -total_freed)
     
     # Increment API calls
-    await increment_api_calls(user_id)
+    await increment_api_calls(current_user["_id"])
     
     return BatchDeleteResponse(
         success=len(not_found_ids) == 0,

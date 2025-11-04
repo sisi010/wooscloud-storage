@@ -3,22 +3,26 @@ Quota management service
 Handles storage limits and API rate limits
 """
 from fastapi import HTTPException
+from bson import ObjectId
 from app.database import get_database
 from app.config import settings
 
-async def check_storage_quota(user_id: str, additional_size: int):
+async def check_storage_quota(user_id, additional_size: int):
     """
     Check if user has enough storage quota
     
     Args:
-        user_id: User ID
+        user_id: User ID (ObjectId or string)
         additional_size: Size of new data in bytes
     
     Raises:
         HTTPException: If quota exceeded
     """
+    # Convert to string if ObjectId
+    user_id_str = str(user_id)
+    
     db = await get_database()
-    user = await db.users.find_one({"_id": user_id})
+    user = await db.users.find_one({"_id": ObjectId(user_id_str)})
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -41,24 +45,28 @@ async def check_storage_quota(user_id: str, additional_size: int):
             }
         )
 
-async def check_api_calls_quota(user_id: str):
+async def check_api_calls_quota(user_id):
     """
     Check if user has API calls remaining
     
     Args:
-        user_id: User ID
+        user_id: User ID (ObjectId or string)
     
     Raises:
         HTTPException: If quota exceeded
     """
+    # Convert to string if ObjectId
+    user_id_str = str(user_id)
+    
     db = await get_database()
-    user = await db.users.find_one({"_id": user_id})
+    user = await db.users.find_one({"_id": ObjectId(user_id_str)})
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # PRO and STARTER plans have unlimited API calls
-    if user.get("plan") in ["starter", "pro"]:
+    # STARTER and PREMIUM plans have unlimited API calls
+    user_plan = user.get("plan", "free").lower()
+    if user_plan in ["starter", "premium", "pro"]:
         return
     
     api_calls_count = user.get("api_calls_count", 0)
@@ -69,34 +77,45 @@ async def check_api_calls_quota(user_id: str):
             status_code=429,
             detail={
                 "error": "API calls limit exceeded",
-                "message": "You've reached your monthly API calls limit. Please upgrade to STARTER or PRO for unlimited calls.",
+                "message": "You've reached your monthly API calls limit. Please upgrade for unlimited calls.",
                 "current_usage": api_calls_count,
                 "limit": api_calls_limit,
                 "upgrade_url": "https://woos-ai.com/pricing.html"
             }
         )
 
-async def increment_api_calls(user_id: str):
-    """Increment user's API calls counter"""
+async def increment_api_calls(user_id):
+    """
+    Increment user's API calls counter
+    
+    Args:
+        user_id: User ID (ObjectId or string)
+    """
+    # Convert to string if ObjectId
+    user_id_str = str(user_id)
+    
     db = await get_database()
     
     await db.users.update_one(
-        {"_id": user_id},
+        {"_id": ObjectId(user_id_str)},
         {"$inc": {"api_calls_count": 1}}
     )
 
-async def update_storage_usage(user_id: str, size_delta: int):
+async def update_storage_usage(user_id, size_delta: int):
     """
     Update user's storage usage
     
     Args:
-        user_id: User ID
+        user_id: User ID (ObjectId or string)
         size_delta: Change in storage size (can be negative for deletions)
     """
+    # Convert to string if ObjectId
+    user_id_str = str(user_id)
+    
     db = await get_database()
     
     await db.users.update_one(
-        {"_id": user_id},
+        {"_id": ObjectId(user_id_str)},
         {"$inc": {"storage_used": size_delta}}
     )
 
@@ -105,6 +124,6 @@ def get_storage_limit_for_plan(plan: str) -> int:
     limits = {
         "free": settings.FREE_STORAGE_LIMIT,
         "starter": settings.STARTER_STORAGE_LIMIT,
-        "pro": settings.PRO_STORAGE_LIMIT
+        "premium": settings.PRO_STORAGE_LIMIT  # Use PRO setting for PREMIUM
     }
-    return limits.get(plan, settings.FREE_STORAGE_LIMIT)
+    return limits.get(plan.lower(), settings.FREE_STORAGE_LIMIT)
