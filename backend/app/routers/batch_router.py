@@ -42,15 +42,14 @@ async def batch_create(
 ):
     """Create multiple data items in one request"""
     
-    # Convert ObjectId to string at the start
-    # Get user_id safely
-    user_id = current_user.get("_id")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-    user_id = str(user_id)
+    # Get user - handle both ObjectId and string
+    user_id = api_key_doc["user_id"]
+    if isinstance(user_id, str):
+        try:
+            user_id = ObjectId(user_id)
+        except:
+            pass
+    user = await db.users.find_one({"_id": user_id})
     
     # Check API calls quota
     await check_api_calls_quota(user_id)
