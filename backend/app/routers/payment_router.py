@@ -198,7 +198,39 @@ async def webhook(request: Request):
     elif event_name == "subscription_payment_success":
         # Payment successful - extend subscription
         return {"status": "success", "event": "payment_success"}
+
+    elif event_name == "subscription_updated":
+        # Subscription updated - handle plan upgrade
+        variant_id = str(attributes.get("variant_id"))
     
+        # Determine plan
+        starter_id = os.getenv("LEMON_STARTER_VARIANT_ID")
+        pro_id = os.getenv("LEMON_PRO_VARIANT_ID")
+    
+        if variant_id == starter_id:
+            plan = "starter"
+            storage_limit = 5 * 1024 * 1024 * 1024  # 5GB
+        elif variant_id == pro_id:
+            plan = "pro"
+            storage_limit = 50 * 1024 * 1024 * 1024  # 50GB
+        else:
+            return {"status": "ignored", "reason": "unknown variant"}
+    
+        # Update user plan
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$set": {
+                    "plan": plan,
+                    "storage_limit": storage_limit,
+                    "api_calls_limit": -1,  # Unlimited
+                    "lemon_subscription_id": attributes.get("id")
+                }
+            }
+        )
+    
+        return {"status": "success", "event": "subscription_updated", "plan": plan}
+
     else:
         return {"status": "ignored", "event": event_name}
 
