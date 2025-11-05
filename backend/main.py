@@ -26,6 +26,7 @@ from app.routers import batch_router
 
 # Initialize R2 storage
 from app.services.r2_storage import R2Storage
+from app.routers import payment_router
 
 r2_storage_instance = None
 if settings.R2_ENABLED:
@@ -144,6 +145,11 @@ app.include_router(
     prefix="/api/batch",
     tags=["Batch Operations"]
 )
+
+app.include_router(
+    payment_router.router
+)
+
 
 
 # API info endpoint
