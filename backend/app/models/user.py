@@ -24,7 +24,7 @@ class User(UserBase):
     id: str = Field(alias="_id")
     plan: str = "free"  # "free", "starter", "pro"
     storage_used: int = 0  # bytes
-    storage_limit: int = 500 * 1024 * 1024  # 500MB default
+    storage_limit: int = 1024 * 1024 * 1024  # 1GB default
     api_calls_count: int = 0
     api_calls_limit: int = 10000
     created_at: datetime

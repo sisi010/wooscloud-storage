@@ -18,8 +18,14 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     
     # Quota limits (FREE plan)
-    FREE_STORAGE_LIMIT: int = 500 * 1024 * 1024  # 500MB
+    FREE_STORAGE_LIMIT: int = 1024 * 1024 * 1024  # 1GB
     FREE_API_CALLS_LIMIT: int = 10000  # 10K per month
+    
+    # Quota limits (STARTER plan)
+    STARTER_STORAGE_LIMIT: int = 5 * 1024 * 1024 * 1024  # 5GB
+    
+    # Quota limits (PRO plan)
+    PRO_STORAGE_LIMIT: int = 50 * 1024 * 1024 * 1024  # 50GB
     
     # Cloudflare R2 Settings
     R2_ENABLED: bool = False
