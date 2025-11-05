@@ -137,7 +137,7 @@ async def webhook(request: Request):
     attributes = data.get("data", {}).get("attributes", {})
     
     # Extract user ID from custom data
-    custom_data = attributes.get("custom_data", {})
+    custom_data = data.get("meta", {}).get("custom_data", {})
     user_id = custom_data.get("user_id")
     
     if not user_id:
