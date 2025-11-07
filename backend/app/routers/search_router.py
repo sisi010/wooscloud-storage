@@ -97,6 +97,11 @@ async def search_data(
                 "skip": skip
             }
         
+        # DEBUG: Log the query
+        import logging
+        logging.info(f"Search query: {base_query}")
+        logging.info(f"OR conditions: {or_conditions}")
+        
         # Execute search with pagination
         cursor = db.storage_data.find(base_query).skip(skip).limit(limit)
         results = await cursor.to_list(length=limit)
