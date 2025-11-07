@@ -66,9 +66,10 @@ async def search_data(
             # This is less efficient but more flexible
             all_docs = await db.storage_data.find(base_query).to_list(length=1000)
             
-            # Find which fields contain strings
+            # Find which fields contain strings (sample more documents)
             string_fields = set()
-            for doc in all_docs[:10]:  # Sample first 10 docs
+            sample_size = min(len(all_docs), 100)  # Sample up to 100 docs
+            for doc in all_docs[:sample_size]:
                 if "data" in doc:
                     for key, value in doc["data"].items():
                         if isinstance(value, str):
