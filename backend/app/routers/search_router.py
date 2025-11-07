@@ -1,6 +1,6 @@
 """
 Search Router
-Full-text search functionality using MongoDB text indexes
+Full-text search functionality using MongoDB regex
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -26,7 +26,7 @@ async def search_data(
     Full-text search in a collection
     
     Features:
-    - Searches across specified fields or all text fields
+    - Searches across specified fields or all string fields
     - Case-insensitive
     - Partial matching
     - Korean and emoji support
@@ -46,48 +46,63 @@ async def search_data(
         if fields:
             search_fields = [f.strip() for f in fields.split(",")]
         
-        # Build search query
-        search_query = {
+        # Build base query
+        base_query = {
             "collection": collection,
             "user_id": current_user["_id"]
         }
         
-        # Create regex pattern for partial matching (case-insensitive)
-        pattern = re.compile(re.escape(query), re.IGNORECASE)
+        # Build search conditions
+        or_conditions = []
         
-        # Build OR query for multiple fields
         if search_fields:
-            or_conditions = []
+            # Search specific fields
             for field in search_fields:
-                or_conditions.append({f"data.{field}": pattern})
-            search_query["$or"] = or_conditions
+                or_conditions.append({
+                    f"data.{field}": {"$regex": query, "$options": "i"}
+                })
         else:
-            # Search all fields in data (fallback)
-            # Get a sample document to determine fields
-            sample = await db.storage_data.find_one({
-                "collection": collection,
-                "user_id": current_user["_id"]
-            })
+            # Search all fields - get all documents and filter in Python
+            # This is less efficient but more flexible
+            all_docs = await db.storage_data.find(base_query).to_list(length=1000)
             
-            if sample and "data" in sample:
-                # Search all string fields in data
-                or_conditions = []
-                for key, value in sample["data"].items():
-                    if isinstance(value, str):
-                        or_conditions.append({f"data.{key}": pattern})
-                
-                if or_conditions:
-                    search_query["$or"] = or_conditions
-                else:
-                    # No string fields found, return empty
-                    search_query["_id"] = None  # Match nothing
+            # Find which fields contain strings
+            string_fields = set()
+            for doc in all_docs[:10]:  # Sample first 10 docs
+                if "data" in doc:
+                    for key, value in doc["data"].items():
+                        if isinstance(value, str):
+                            string_fields.add(key)
+            
+            # Build OR query for all string fields
+            for field in string_fields:
+                or_conditions.append({
+                    f"data.{field}": {"$regex": query, "$options": "i"}
+                })
         
-        # Execute search
-        cursor = db.storage_data.find(search_query).skip(skip).limit(limit)
+        # Add OR conditions to base query
+        if or_conditions:
+            base_query["$or"] = or_conditions
+        else:
+            # No string fields found, return empty
+            await increment_api_calls(current_user["_id"])
+            return {
+                "success": True,
+                "query": query,
+                "collection": collection,
+                "fields": search_fields or ["all"],
+                "results": [],
+                "total": 0,
+                "limit": limit,
+                "skip": skip
+            }
+        
+        # Execute search with pagination
+        cursor = db.storage_data.find(base_query).skip(skip).limit(limit)
         results = await cursor.to_list(length=limit)
         
         # Get total count
-        total = await db.storage_data.count_documents(search_query)
+        total = await db.storage_data.count_documents(base_query)
         
         # Format results
         formatted_results = []
@@ -108,7 +123,7 @@ async def search_data(
             "success": True,
             "query": query,
             "collection": collection,
-            "fields": search_fields or ["all"],
+            "fields": search_fields or list(string_fields) if not search_fields and 'string_fields' in locals() else ["all"],
             "results": formatted_results,
             "total": total,
             "limit": limit,
@@ -145,20 +160,20 @@ async def autocomplete(
     try:
         db = await get_database()
         
-        # Build query
+        # Build query with case-insensitive prefix match
         query = {
             "collection": collection,
             "user_id": current_user["_id"],
             f"data.{field}": {"$regex": f"^{re.escape(prefix)}", "$options": "i"}
         }
         
-        # Get distinct values
+        # Get matching documents
         cursor = db.storage_data.find(
             query,
             {f"data.{field}": 1}
-        ).limit(limit)
+        ).limit(limit * 2)  # Get more to account for duplicates
         
-        docs = await cursor.to_list(length=limit)
+        docs = await cursor.to_list(length=limit * 2)
         
         # Extract unique suggestions
         suggestions = []
@@ -177,6 +192,9 @@ async def autocomplete(
                     if value.lower() not in seen:
                         suggestions.append(value)
                         seen.add(value.lower())
+                        
+                        if len(suggestions) >= limit:
+                            break
             except:
                 continue
         
@@ -187,7 +205,7 @@ async def autocomplete(
             "success": True,
             "field": field,
             "prefix": prefix,
-            "suggestions": suggestions[:limit],
+            "suggestions": suggestions,
             "count": len(suggestions)
         }
         
@@ -195,54 +213,4 @@ async def autocomplete(
         raise HTTPException(
             status_code=500,
             detail=f"Autocomplete failed: {str(e)}"
-        )
-
-@router.post("/search/create-index")
-async def create_search_index(
-    collection: str = Query(..., description="Collection name"),
-    fields: List[str] = Query(..., description="Fields to index"),
-    current_user: dict = Depends(verify_api_key)
-):
-    """
-    Create text search index for a collection
-    
-    Admin/Owner only feature
-    Creates MongoDB text index for specified fields
-    
-    Example:
-        POST /api/search/create-index?collection=products&fields=name&fields=description
-    """
-    
-    # Check API calls quota
-    await check_api_calls_quota(current_user["_id"])
-    
-    try:
-        db = await get_database()
-        
-        # Build index specification
-        index_spec = []
-        for field in fields:
-            index_spec.append((f"data.{field}", "text"))
-        
-        # Create index
-        index_name = await db.storage_data.create_index(
-            index_spec,
-            name=f"search_{collection}_{'_'.join(fields)}"
-        )
-        
-        # Increment API calls
-        await increment_api_calls(current_user["_id"])
-        
-        return {
-            "success": True,
-            "message": "Search index created",
-            "index_name": index_name,
-            "collection": collection,
-            "fields": fields
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create index: {str(e)}"
         )
