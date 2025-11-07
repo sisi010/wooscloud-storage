@@ -174,21 +174,20 @@ async def search_data(
 
 @router.get("/autocomplete")
 async def autocomplete(
-    collection: str = Query(..., description="Collection to search"),
-    field: str = Query(..., description="Field to search (e.g., 'name')"),
-    prefix: str = Query(..., description="Prefix to match", min_length=1),
+    collection: str = Query(...),
+    field: str = Query(...),
+    prefix: str = Query(..., min_length=1),
     limit: int = Query(10, ge=1, le=50),
     current_user: dict = Depends(verify_api_key)
 ):
-    """
-    Autocomplete suggestions
+    # ...
     
-    Returns unique values that start with the given prefix
-    
-    Example:
-        GET /api/autocomplete?collection=products&field=name&prefix=lap&limit=10
-        Returns: ["Laptop HP", "Laptop Dell", "Laptop Asus", ...]
-    """
+    # Build query
+    query = {
+        "collection": collection,
+        "user_id": str(current_user["_id"]),  # ← 이 부분 수정!
+        f"data.{field}": {"$regex": f"^{re.escape(prefix)}", "$options": "i"}
+    }
     
     # Check API calls quota
     await check_api_calls_quota(current_user["_id"])
