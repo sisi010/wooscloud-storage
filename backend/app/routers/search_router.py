@@ -46,6 +46,11 @@ async def search_data(
         if fields:
             search_fields = [f.strip() for f in fields.split(",")]
         
+        # DEBUG: Log parsed fields
+        import logging
+        logging.info(f"Raw fields parameter: {fields}")
+        logging.info(f"Parsed search_fields: {search_fields}")
+        
         # Build base query
         base_query = {
             "collection": collection,
@@ -55,14 +60,19 @@ async def search_data(
         # Build search conditions
         or_conditions = []
         
+        import logging
+        logging.info(f"Building search with search_fields: {search_fields}")
+        
         if search_fields:
             # Search specific fields
+            logging.info(f"Using specific fields: {search_fields}")
             for field in search_fields:
                 or_conditions.append({
                     f"data.{field}": {"$regex": query, "$options": "i"}
                 })
         else:
             # Search all fields - get all documents and filter in Python
+            logging.info("No specific fields, sampling documents...")
             # This is less efficient but more flexible
             all_docs = await db.storage_data.find(base_query).to_list(length=1000)
             
