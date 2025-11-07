@@ -1,6 +1,6 @@
 """
 File router
-Handles file upload/download operations
+Handles file upload/download operations with Webhook support
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Form
@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from typing import Optional
 import io
 import json
+import logging
 
 from app.models.file_data import FileUploadResponse, FileInfo
 from app.services.file_storage import FileStorageService
@@ -19,7 +20,9 @@ from app.services.quota_manager import (
     update_storage_usage
 )
 from app.database import get_database
+from app.services.webhook_service import WebhookService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # R2 storage will be set by main.py
@@ -83,11 +86,33 @@ async def upload_file(
             metadata=metadata
         )
         
+        file_id = result["id"]
+        storage_type = result["storage_type"]
+        
         # Update storage usage
         await update_storage_usage(current_user["_id"], file_size)
         
         # Increment API calls
         await increment_api_calls(current_user["_id"])
+        
+        # Trigger webhook
+        try:
+            db = await get_database()
+            webhook_service = WebhookService(db)
+            await webhook_service.trigger_event(
+                user_id=str(current_user["_id"]),
+                event="file.uploaded",
+                payload={
+                    "id": file_id,
+                    "filename": result["filename"],
+                    "collection": collection,
+                    "size": file_size,
+                    "storage_type": storage_type,
+                    "content_type": file.content_type or "application/octet-stream"
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to trigger webhook: {e}")
         
         return FileUploadResponse(**result)
         

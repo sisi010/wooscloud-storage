@@ -1,6 +1,6 @@
 """
 Storage router
-Handles CRUD operations for cloud storage with R2 integration
+Handles CRUD operations for cloud storage with R2 integration and Webhooks
 """
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
@@ -18,6 +18,7 @@ from app.services.quota_manager import (
 )
 from app.database import get_database
 from app.config import settings
+from app.services.webhook_service import WebhookService
 
 # R2 imports
 from app.services.r2_storage import R2Storage
@@ -63,16 +64,35 @@ async def create_data(
             data=storage_data.data
         )
         
+        data_id = str(document["_id"])
+        storage_type = document["storage_type"]
+        
         # Update storage usage
         await update_storage_usage(current_user["_id"], document["size"])
         
         # Increment API calls counter
         await increment_api_calls(current_user["_id"])
         
+        # Trigger webhook
+        try:
+            webhook_service = WebhookService(db)
+            await webhook_service.trigger_event(
+                user_id=str(current_user["_id"]),
+                event="data.created",
+                payload={
+                    "id": data_id,
+                    "collection": storage_data.collection,
+                    "storage_type": storage_type,
+                    "size": document["size"]
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to trigger webhook: {e}")
+        
         return {
             "success": True,
-            "id": str(document["_id"]),
-            "storage_type": document["storage_type"],
+            "id": data_id,
+            "storage_type": storage_type,
             "size": document["size"],
             "created_at": document["created_at"].isoformat()
         }
@@ -154,10 +174,11 @@ async def list_data(
     skip: int = Query(0, ge=0, description="Number of results to skip"),
     current_user: dict = Depends(verify_api_key)
 ):
-    """
-    List all data (with pagination and filtering)
-    """
+    """List all data entries with optional collection filter and R2 support"""
+    
     db = await get_database()
+    
+    logger.info(f"[LIST] User ID: {current_user['_id']}")
     
     # Check API calls quota
     await check_api_calls_quota(current_user["_id"])
@@ -241,6 +262,8 @@ async def update_data(
             detail="Data not found"
         )
     
+    collection_name = doc["collection"]
+    
     # Calculate size difference
     old_size = doc["size"]
     new_size = len(str(update_data.data))
@@ -270,6 +293,21 @@ async def update_data(
     
     # Increment API calls counter
     await increment_api_calls(current_user["_id"])
+    
+    # Trigger webhook
+    try:
+        webhook_service = WebhookService(db)
+        await webhook_service.trigger_event(
+            user_id=str(current_user["_id"]),
+            event="data.updated",
+            payload={
+                "id": data_id,
+                "collection": collection_name,
+                "size_change": size_diff
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to trigger webhook: {e}")
     
     return {
         "success": True,
@@ -311,6 +349,9 @@ async def delete_data(
             detail="Data not found"
         )
     
+    collection_name = doc["collection"]
+    freed_space = doc["size"]
+    
     # Initialize smart router
     smart_router = SmartStorageRouter(
         mongodb_collection=db.storage_data,
@@ -327,15 +368,30 @@ async def delete_data(
         )
     
     # Update storage usage (decrease)
-    await update_storage_usage(current_user["_id"], -doc["size"])
+    await update_storage_usage(current_user["_id"], -freed_space)
     
     # Increment API calls counter
     await increment_api_calls(current_user["_id"])
     
+    # Trigger webhook
+    try:
+        webhook_service = WebhookService(db)
+        await webhook_service.trigger_event(
+            user_id=str(current_user["_id"]),
+            event="data.deleted",
+            payload={
+                "id": data_id,
+                "collection": collection_name,
+                "freed_space": freed_space
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to trigger webhook: {e}")
+    
     return {
         "success": True,
         "id": data_id,
-        "freed_space": doc["size"]
+        "freed_space": freed_space
     }
 
 @router.get("/stats", response_model=dict)

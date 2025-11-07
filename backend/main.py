@@ -24,6 +24,7 @@ from app.routers import api_key_router
 from app.routers import file_router
 from app.routers import batch_router
 from app.routers import search_router
+from app.routers import webhook_router
 
 # Initialize R2 storage
 from app.services.r2_storage import R2Storage
@@ -157,6 +158,11 @@ app.include_router(
     tags=["Search"]
 )
 
+app.include_router(
+    webhook_router.router,
+    prefix="/api",
+    tags=["Webhooks"]
+)
 
 # API info endpoint
 @app.get("/api/info")

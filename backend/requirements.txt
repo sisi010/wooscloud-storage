@@ -14,3 +14,4 @@ botocore==1.34.0
 argon2-cffi==23.1.0
 passlib[argon2]==1.7.4
 requests==2.31.0
+httpx>=0.24.0

@@ -13,7 +13,7 @@ class StorageData:
         id: str,
         collection: str,
         data: Dict[str, Any],
-        size: int,
+        size: int = 0,
         storage_type: str = "mongodb",  # NEW!
         created_at: Optional[str] = None,
         updated_at: Optional[str] = None,
@@ -61,36 +61,84 @@ class StorageData:
 
 
 class StorageStats:
-    """Storage statistics with R2 support"""
+    """Storage statistics model"""
     
-    def __init__(self, stats_data: Dict[str, Any]):
-        self._raw = stats_data
+    def __init__(
+        self,
+        plan: str = None,
+        storage_limit: int = None,
+        storage_used: int = None,
+        api_calls_count: int = None,
+        api_calls_limit: int = None,
+        **kwargs
+    ):
+        # Handle both old format (nested dict) and new format (flat)
+        if isinstance(plan, dict):
+            # Old format: StorageStats(stats_data)
+            stats_data = plan
+            
+            # Storage info
+            storage = stats_data.get('storage', {})
+            self.used = storage.get('used', 0)
+            self.limit = storage.get('limit', 0)
+            self.percent = storage.get('percent', 0)
+            self.used_mb = storage.get('used_mb', 0)
+            self.limit_mb = storage.get('limit_mb', 0)
+            
+            # API calls info
+            api_calls = stats_data.get('api_calls', {})
+            self.api_calls_count = api_calls.get('count', 0)
+            self.api_calls_limit = api_calls.get('limit', 0)
+            self.api_calls_remaining = api_calls.get('remaining', 0)
+            
+            # Plan
+            self.plan = stats_data.get('plan', 'free')
+            
+            # R2 info
+            self.r2_enabled = stats_data.get('r2_enabled', False)
+            
+            # Storage distribution
+            distribution = stats_data.get('storage_distribution', {})
+            self.mongodb_items = distribution.get('mongodb', 0)
+            self.r2_items = distribution.get('r2', 0)
+            self.total_items = distribution.get('total', 0)
+            
+            # Computed properties for new format compatibility
+            self.storage_limit = self.limit
+            self.storage_used = self.used
+            self.storage_limit_mb = self.limit_mb
+            self.storage_used_mb = self.used_mb
+            
+        else:
+            # New format: StorageStats(plan, storage_limit, storage_used, ...)
+            self.plan = plan
+            self.storage_limit = storage_limit or 0
+            self.storage_used = storage_used or 0
+            self.api_calls_count = api_calls_count or 0
+            self.api_calls_limit = api_calls_limit or 0
+            
+            # Computed properties
+            self.storage_limit_mb = self.storage_limit / 1024 / 1024
+            self.storage_used_mb = self.storage_used / 1024 / 1024
+            
+            # Old format compatibility
+            self.used = self.storage_used
+            self.limit = self.storage_limit
+            self.used_mb = self.storage_used_mb
+            self.limit_mb = self.storage_limit_mb
+            self.percent = (self.storage_used / self.storage_limit * 100) if self.storage_limit > 0 else 0
+            
+            # Defaults
+            self.r2_enabled = kwargs.get('r2_enabled', False)
+            self.mongodb_items = kwargs.get('mongodb_items', 0)
+            self.r2_items = kwargs.get('r2_items', 0)
+            self.total_items = kwargs.get('total_items', 0)
+            self.api_calls_remaining = kwargs.get('api_calls_remaining', 0)
         
-        # Storage info
-        storage = stats_data.get('storage', {})
-        self.used = storage.get('used', 0)
-        self.limit = storage.get('limit', 0)
-        self.percent = storage.get('percent', 0)
-        self.used_mb = storage.get('used_mb', 0)
-        self.limit_mb = storage.get('limit_mb', 0)
-        
-        # API calls info
-        api_calls = stats_data.get('api_calls', {})
-        self.api_calls_count = api_calls.get('count', 0)
-        self.api_calls_limit = api_calls.get('limit', 0)
-        self.api_calls_remaining = api_calls.get('remaining', 0)
-        
-        # Plan
-        self.plan = stats_data.get('plan', 'free')
-        
-        # R2 info (NEW!)
-        self.r2_enabled = stats_data.get('r2_enabled', False)
-        
-        # Storage distribution (NEW!)
-        distribution = stats_data.get('storage_distribution', {})
-        self.mongodb_items = distribution.get('mongodb', 0)
-        self.r2_items = distribution.get('r2', 0)
-        self.total_items = distribution.get('total', 0)
+        # Store any additional fields
+        for key, value in kwargs.items():
+            if not hasattr(self, key):
+                setattr(self, key, value)
     
     def get(self, key: str, default=None):
         """Dictionary-like get method"""
@@ -98,8 +146,6 @@ class StorageStats:
     
     def __getitem__(self, key: str):
         """Dictionary-like access"""
-        if key in self._raw:
-            return self._raw[key]
         return getattr(self, key)
     
     def to_dict(self) -> Dict[str, Any]:
@@ -127,7 +173,7 @@ class StorageStats:
         }
     
     def __repr__(self):
-        return f"StorageStats(used_mb={self.used_mb}, r2_enabled={self.r2_enabled})"
+        return f"StorageStats(plan={self.plan}, used_mb={self.storage_used_mb:.2f}, limit_mb={self.storage_limit_mb:.0f})"
 
 
 class Collection:

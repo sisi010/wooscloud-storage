@@ -1,0 +1,3 @@
+This is a test file for WoosCloud Storage!
+Testing file upload functionality.
+한글 테스트도 해봅시다! 😊
