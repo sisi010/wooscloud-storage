@@ -63,10 +63,24 @@ async def search_data(
             search_query["$or"] = or_conditions
         else:
             # Search all fields in data (fallback)
-            # This searches the entire data object as a string
-            search_query["$or"] = [
-                {"data": {"$regex": query, "$options": "i"}}
-            ]
+            # Get a sample document to determine fields
+            sample = await db.storage_data.find_one({
+                "collection": collection,
+                "user_id": current_user["_id"]
+            })
+            
+            if sample and "data" in sample:
+                # Search all string fields in data
+                or_conditions = []
+                for key, value in sample["data"].items():
+                    if isinstance(value, str):
+                        or_conditions.append({f"data.{key}": pattern})
+                
+                if or_conditions:
+                    search_query["$or"] = or_conditions
+                else:
+                    # No string fields found, return empty
+                    search_query["_id"] = None  # Match nothing
         
         # Execute search
         cursor = db.storage_data.find(search_query).skip(skip).limit(limit)
