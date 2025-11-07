@@ -19,6 +19,7 @@ from app.services.quota_manager import (
 from app.database import get_database
 from app.config import settings
 from app.services.webhook_service import WebhookService
+from app.services.rate_limiter import get_rate_limiter
 
 # R2 imports
 from app.services.r2_storage import R2Storage
@@ -492,3 +493,39 @@ async def list_collections(current_user: dict = Depends(verify_api_key)):
         "collections": collections_list,
         "total_collections": len(collections_list)
     }
+    
+@router.get("/rate-limit")
+async def get_rate_limit_info(current_user: dict = Depends(verify_api_key)):
+    """
+    Get current rate limit status
+    
+    Returns information about API rate limits and current usage
+    """
+    
+    rate_limiter = get_rate_limiter()
+    stats = await rate_limiter.get_stats(str(current_user["_id"]))
+    
+    plan = current_user.get("plan", "free")
+    
+    # Get limits
+    hourly_limit = rate_limiter._get_limits(plan, "hour")
+    monthly_limit = rate_limiter._get_limits(plan, "month")
+    
+    return {
+        "success": True,
+        "plan": plan,
+        "limits": {
+            "hourly": {
+                "limit": hourly_limit if hourly_limit < 999999999 else -1,
+                "used": stats.get("hour", {}).get("count", 0),
+                "remaining": max(0, hourly_limit - stats.get("hour", {}).get("count", 0)) if hourly_limit < 999999999 else -1,
+                "reset": stats.get("hour", {}).get("reset_time")
+            },
+            "monthly": {
+                "limit": monthly_limit if monthly_limit < 999999999 else -1,
+                "used": stats.get("month", {}).get("count", 0),
+                "remaining": max(0, monthly_limit - stats.get("month", {}).get("count", 0)) if monthly_limit < 999999999 else -1,
+                "reset": stats.get("month", {}).get("reset_time")
+            }
+        }
+    }   

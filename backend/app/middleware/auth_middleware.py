@@ -1,10 +1,13 @@
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, status, Request
 from app.database import get_database
 from app.services.auth_service import decode_access_token
 from bson import ObjectId
 from datetime import datetime
 
-async def verify_api_key(x_api_key: str = Header(..., alias="X-API-Key")) -> dict:
+async def verify_api_key(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    request: Request = None
+) -> dict:
     db = await get_database()
     api_key_doc = await db.api_keys.find_one({"key": x_api_key, "is_active": True})
     
@@ -24,6 +27,10 @@ async def verify_api_key(x_api_key: str = Header(..., alias="X-API-Key")) -> dic
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     
     await db.api_keys.update_one({"_id": api_key_doc["_id"]}, {"$set": {"last_used": datetime.utcnow()}, "$inc": {"usage_count": 1}})
+    
+    # Set user in request state for rate limiting
+    if request:
+        request.state.user = user
     
     return user
 

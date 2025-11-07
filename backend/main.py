@@ -25,6 +25,7 @@ from app.routers import file_router
 from app.routers import batch_router
 from app.routers import search_router
 from app.routers import webhook_router
+from app.middleware.rate_limit_middleware import RateLimitMiddleware
 
 # Initialize R2 storage
 from app.services.r2_storage import R2Storage
@@ -74,6 +75,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(RateLimitMiddleware)
 
 # Database connection events
 @app.on_event("startup")
