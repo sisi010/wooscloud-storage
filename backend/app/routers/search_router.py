@@ -45,24 +45,28 @@ async def search_data(
         search_fields = []
         if fields:
             search_fields = [f.strip() for f in fields.split(",")]
-        
+
         # DEBUG: Log parsed fields
         import logging
         logging.info(f"Raw fields parameter: {fields}")
         logging.info(f"Parsed search_fields: {search_fields}")
-        
+        logging.info(f"[SEARCH] User ID: {current_user['_id']}")
+
         # Build base query
         base_query = {
             "collection": collection,
-            "user_id": current_user["_id"]
+            "user_id": str(current_user["_id"])  # ← 수정!
         }
-        
+
+        # DEBUG: Check if any documents exist
+        total_in_collection = await db.storage_data.count_documents(base_query)
+        logging.info(f"Total documents in collection '{collection}' for this user: {total_in_collection}")
+
         # Build search conditions
         or_conditions = []
-        
-        import logging
+
         logging.info(f"Building search with search_fields: {search_fields}")
-        
+
         if search_fields:
             # Search specific fields
             logging.info(f"Using specific fields: {search_fields}")
@@ -73,9 +77,8 @@ async def search_data(
         else:
             # Search all fields - get all documents and filter in Python
             logging.info("No specific fields, sampling documents...")
-            # This is less efficient but more flexible
             all_docs = await db.storage_data.find(base_query).to_list(length=1000)
-            
+    
             # Find which fields contain strings (sample more documents)
             string_fields = set()
             sample_size = min(len(all_docs), 100)  # Sample up to 100 docs
@@ -84,8 +87,8 @@ async def search_data(
                     for key, value in doc["data"].items():
                         if isinstance(value, str):
                             string_fields.add(key)
-            
-            # Build OR query for all string fields
+    
+           # Build OR query for all string fields
             for field in string_fields:
                 or_conditions.append({
                     f"data.{field}": {"$regex": query, "$options": "i"}
