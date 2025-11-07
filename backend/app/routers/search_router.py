@@ -113,6 +113,23 @@ async def search_data(
         logging.info(f"Search query: {base_query}")
         logging.info(f"OR conditions: {or_conditions}")
         
+        # DEBUG: Check if any documents exist at all
+        total_in_collection = await db.storage_data.count_documents({
+            "collection": collection,
+            "user_id": current_user["_id"]
+        })
+        logging.info(f"Total documents in collection '{collection}' for this user: {total_in_collection}")
+        
+        # DEBUG: Try finding without OR conditions
+        test_query = {
+            "collection": collection,
+            "user_id": current_user["_id"]
+        }
+        test_results = await db.storage_data.find(test_query).limit(3).to_list(length=3)
+        logging.info(f"Sample documents (first 3):")
+        for doc in test_results:
+            logging.info(f"  - {doc.get('data', {})}")
+        
         # Execute search with pagination
         cursor = db.storage_data.find(base_query).skip(skip).limit(limit)
         results = await cursor.to_list(length=limit)
