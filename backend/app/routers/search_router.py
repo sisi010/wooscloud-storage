@@ -174,20 +174,17 @@ async def search_data(
 
 @router.get("/autocomplete")
 async def autocomplete(
-    collection: str = Query(...),
-    field: str = Query(...),
-    prefix: str = Query(..., min_length=1),
+    collection: str = Query(..., description="Collection to search"),
+    field: str = Query(..., description="Field to search (e.g., 'name')"),
+    prefix: str = Query(..., description="Prefix to match", min_length=1),
     limit: int = Query(10, ge=1, le=50),
     current_user: dict = Depends(verify_api_key)
 ):
-    # ...
+    """
+    Autocomplete suggestions
     
-    # Build query
-    query = {
-        "collection": collection,
-        "user_id": str(current_user["_id"]),  # ← 이 부분 수정!
-        f"data.{field}": {"$regex": f"^{re.escape(prefix)}", "$options": "i"}
-    }
+    Returns unique values that start with the given prefix
+    """
     
     # Check API calls quota
     await check_api_calls_quota(current_user["_id"])
@@ -195,12 +192,18 @@ async def autocomplete(
     try:
         db = await get_database()
         
+        import logging
+        logging.info(f"[AUTOCOMPLETE] User ID: {current_user['_id']}")
+        logging.info(f"[AUTOCOMPLETE] Collection: {collection}, Field: {field}, Prefix: {prefix}")
+        
         # Build query with case-insensitive prefix match
         query = {
             "collection": collection,
-            "user_id": current_user["_id"],
+            "user_id": str(current_user["_id"]),  # ← str()로 변환!
             f"data.{field}": {"$regex": f"^{re.escape(prefix)}", "$options": "i"}
         }
+        
+        logging.info(f"[AUTOCOMPLETE] Query: {query}")
         
         # Get matching documents
         cursor = db.storage_data.find(
@@ -209,6 +212,8 @@ async def autocomplete(
         ).limit(limit * 2)  # Get more to account for duplicates
         
         docs = await cursor.to_list(length=limit * 2)
+        
+        logging.info(f"[AUTOCOMPLETE] Found {len(docs)} matching documents")
         
         # Extract unique suggestions
         suggestions = []
@@ -232,6 +237,8 @@ async def autocomplete(
                             break
             except:
                 continue
+        
+        logging.info(f"[AUTOCOMPLETE] Extracted {len(suggestions)} suggestions")
         
         # Increment API calls
         await increment_api_calls(current_user["_id"])
