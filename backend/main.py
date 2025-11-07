@@ -23,6 +23,7 @@ from app.routers import storage_router
 from app.routers import api_key_router
 from app.routers import file_router
 from app.routers import batch_router
+from app.routers import search_router
 
 # Initialize R2 storage
 from app.services.r2_storage import R2Storage
@@ -150,6 +151,11 @@ app.include_router(
     payment_router.router
 )
 
+app.include_router(
+    search_router.router,
+    prefix="/api",
+    tags=["Search"]
+)
 
 
 # API info endpoint
