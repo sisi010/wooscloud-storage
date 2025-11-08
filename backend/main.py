@@ -26,6 +26,7 @@ from app.routers import batch_router
 from app.routers import search_router
 from app.routers import webhook_router
 from app.middleware.rate_limit_middleware import RateLimitMiddleware
+from app.routers import export_router
 
 # Initialize R2 storage
 from app.services.r2_storage import R2Storage
@@ -165,6 +166,12 @@ app.include_router(
     webhook_router.router,
     prefix="/api",
     tags=["Webhooks"]
+)
+
+app.include_router(
+    export_router.router,
+    prefix="/api",
+    tags=["Export"]
 )
 
 # API info endpoint
