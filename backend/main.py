@@ -6,7 +6,7 @@ import logging
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(levelname)s:     %(message)s'
 )
 
@@ -27,11 +27,36 @@ from app.routers import search_router
 from app.routers import webhook_router
 from app.middleware.rate_limit_middleware import RateLimitMiddleware
 from app.routers import export_router
-
-# Initialize R2 storage
+from app.middleware.version_middleware import APIVersionMiddleware
+from app.routers import v2_storage_router
+from app.routers import backup_router
+from app.routers import team_router
+from app.routers import audit_router
+from app.middleware.audit_middleware import AuditLoggingMiddleware
 from app.services.r2_storage import R2Storage
 from app.routers import payment_router
-
+from app.routers import scheduler_router
+from app.background_tasks import background_tasks
+from app.routers import notification_router
+from app.routers import relationship_router
+from app.routers.encryption_router import router as encryption_router
+from app.routers import oauth_router  
+from app.routers import twofa_router
+from app.routers import unified_search_router
+from app.routers import presigned_urls_router
+from app.routers import (
+    presigned_urls_router,
+    multipart_upload_router,
+    lifecycle_router,
+    storage_classes_router,
+    file_preview_router
+)
+from app.routers import cdn_router
+from app.routers import analytics_router
+from app.routers import mobile_sdk_router
+from app.routers import desktop_sync_router
+from app.routers import object_lock_router
+   
 r2_storage_instance = None
 if settings.R2_ENABLED:
     try:
@@ -78,7 +103,8 @@ app.add_middleware(
 )
 
 app.add_middleware(RateLimitMiddleware)
-
+app.add_middleware(AuditLoggingMiddleware)
+app.add_middleware(APIVersionMiddleware)
 # Database connection events
 @app.on_event("startup")
 async def startup_db_client():
@@ -120,6 +146,18 @@ async def health_check():
         "r2_enabled": settings.R2_ENABLED,
         "storage": "MongoDB + R2" if settings.R2_ENABLED else "MongoDB only"
     }
+    
+@app.on_event("startup")
+async def startup_event():
+    """Start background tasks on server startup"""
+    await background_tasks.start()
+    print("✅ Background tasks started")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop background tasks on server shutdown"""
+    await background_tasks.stop()
+    print("✅ Background tasks stopped")    
 
 # Include routers
 app.include_router(
@@ -174,6 +212,110 @@ app.include_router(
     tags=["Export"]
 )
 
+app.include_router(
+    storage_router.router,
+    prefix="/api",
+    tags=["Storage V1"]
+)
+
+app.include_router(
+    v2_storage_router.router,
+    prefix="/api/v2",
+    tags=["Storage V2"]
+)
+
+
+app.include_router(
+    backup_router.router,
+    prefix="/api",
+    tags=["Backup & Restore"]
+)
+
+
+app.include_router(
+    team_router.router,
+    prefix="/api",
+    tags=["Team Collaboration"]
+)
+
+app.include_router(
+    audit_router.router,
+    prefix="/api",
+    tags=["Audit & Monitoring"]
+)
+
+
+app.include_router(
+    scheduler_router.router,
+    prefix="/api",
+    tags=["Backup Scheduler"]
+)
+
+
+app.include_router(
+    notification_router.router,
+    prefix="/api",
+    tags=["Notifications"]
+)
+
+app.include_router(
+    relationship_router.router,
+    prefix="/api",
+    tags=["Relationships"]
+)
+
+app.include_router(
+    encryption_router,
+    prefix="/api",
+    tags=["Encryption"]
+)
+
+app.include_router(
+    oauth_router.router,
+    prefix="/api",
+    tags=["OAuth2 Authentication"]
+)
+
+app.include_router(
+    twofa_router.router,
+    prefix="/api",
+    tags=["Two-Factor Authentication"]
+)
+
+app.include_router(
+    unified_search_router.router,
+    prefix="/api",
+    tags=["Unified Search"]
+)
+
+app.include_router(
+    presigned_urls_router.router,
+    prefix="/api",
+    tags=["Pre-signed URLs"]
+)
+app.include_router(presigned_urls_router.router, prefix="/api")
+app.include_router(multipart_upload_router.router, prefix="/api")
+app.include_router(lifecycle_router.router, prefix="/api")
+app.include_router(storage_classes_router.router, prefix="/api")
+app.include_router(file_preview_router.router, prefix="/api")
+app.include_router(cdn_router.router, prefix="/api")
+app.include_router(analytics_router.router, prefix="/api")
+app.include_router(mobile_sdk_router.router, prefix="/api")
+app.include_router(desktop_sync_router.router, prefix="/api")
+app.include_router(object_lock_router.router, prefix="/api")
+
+
+# DEBUG: Print all routes
+print("\n" + "="*80)
+print("📋 All Registered Routes:")
+print("="*80)
+for route in app.routes:
+    if hasattr(route, 'methods') and hasattr(route, 'path'):
+        methods = list(route.methods)[0] if route.methods else "ANY"
+        if '/relationships/' in route.path or '/oauth/' in route.path:
+            print(f"  {methods:6} {route.path}")
+print("="*80 + "\n")
+
 # API info endpoint
 @app.get("/api/info")
 async def api_info():
@@ -186,9 +328,14 @@ async def api_info():
         "endpoints": {
             "auth": "/api/auth",
             "keys": "/api/keys",
-            "storage": "/api/storage"
+            "storage": "/api/storage",
+            "oauth": "/api/oauth"  # NEW
         },
         "documentation": "/api/docs",
+        "oauth_providers": {
+            "google": "/api/oauth/google/login",
+            "github": "/api/oauth/github/login"
+        },
         "pricing": {
             "free": {
                 "storage": "500 MB",

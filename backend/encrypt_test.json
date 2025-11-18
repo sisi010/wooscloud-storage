@@ -1,0 +1,5 @@
+﻿{
+  "collection": "test_encryption",
+  "document_id": "691472c368ed6ec84eb3a1d4",
+  "fields": ["ssn", "credit_card"]
+}

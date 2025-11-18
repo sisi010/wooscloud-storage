@@ -16,3 +16,4 @@ passlib[argon2]==1.7.4
 requests==2.31.0
 httpx>=0.24.0
 openpyxl>=3.1.0
+PyJWT==2.8.0

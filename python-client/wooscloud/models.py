@@ -70,8 +70,25 @@ class StorageStats:
         storage_used: int = None,
         api_calls_count: int = None,
         api_calls_limit: int = None,
+        storage_used_mb: float = None,
+        storage_limit_mb: float = None,
+        api_calls_used: int = None,
         **kwargs
     ):
+        self.plan = plan
+    
+        # Support both old and new naming conventions
+        self.storage_used_mb = storage_used_mb or (storage_used / (1024 * 1024) if storage_used else 0)
+        self.storage_limit_mb = storage_limit_mb or (storage_limit / (1024 * 1024) if storage_limit else 0)
+    
+        self.api_calls_used = api_calls_used or api_calls_count or 0
+        self.api_calls_limit = api_calls_limit or -1
+    
+        # Keep old attributes for backward compatibility
+        self.storage_used = storage_used
+        self.storage_limit = storage_limit
+        self.api_calls_count = api_calls_count
+        
         # Handle both old format (nested dict) and new format (flat)
         if isinstance(plan, dict):
             # Old format: StorageStats(stats_data)

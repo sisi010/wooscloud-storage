@@ -56,3 +56,18 @@ async def verify_token(authorization: str = Header(...)) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     
     return user
+
+# Helper function for audit middleware
+async def get_user_from_api_key(api_key: str, db):
+    """Get user from API key (for audit logging)"""
+    
+    # Find API key
+    api_key_doc = await db.api_keys.find_one({"key": api_key})
+    
+    if not api_key_doc:
+        return None
+    
+    # Get user
+    user = await db.users.find_one({"_id": api_key_doc["user_id"]})
+    
+    return user

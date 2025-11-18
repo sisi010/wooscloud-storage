@@ -73,6 +73,23 @@ class WebhookManager:
         response = self.client.get("/api/webhooks")
         return response.get("webhooks", [])
     
+    def get(self, webhook_id: str) -> Dict[str, Any]:
+        """
+        Get webhook details by ID
+    
+        Args:
+            webhook_id: Webhook ID
+    
+        Returns:
+            Webhook details dictionary
+    
+        Example:
+            >>> webhook = storage.webhooks.get("webhook_id_here")
+            >>> print(webhook["url"])
+            >>> print(webhook["events"])
+        """
+        return self.client.get(f"/api/webhooks/{webhook_id}")
+    
     def delete(self, webhook_id: str) -> Dict[str, Any]:
         """
         Delete a webhook

@@ -1,10 +1,15 @@
+"""
+Configuration Settings
+Environment variables and application settings
+"""
+
 from pydantic_settings import BaseSettings
 from typing import Optional
 
 class Settings(BaseSettings):
     # MongoDB
     MONGODB_URL: str
-    DATABASE_NAME: str = "wooscloud"  # Added!
+    DATABASE_NAME: str = "wooscloud"
     
     # JWT
     SECRET_KEY: str
@@ -33,6 +38,31 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY: Optional[str] = None
     R2_SECRET_KEY: Optional[str] = None
     R2_BUCKET_NAME: str = "wooscloud-storage"
+    
+    # OAuth2 Settings - Google
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/oauth/google/callback"
+    
+    # OAuth2 Settings - GitHub
+    GITHUB_CLIENT_ID: Optional[str] = None
+    GITHUB_CLIENT_SECRET: Optional[str] = None
+    GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/oauth/github/callback"
+    
+    base_url: str = "http://127.0.0.1:8000"
+    
+    # ========================================
+    # Compatibility Properties
+    # ========================================
+    @property
+    def jwt_secret(self) -> str:
+        """JWT secret alias for compatibility with pre-signed URLs"""
+        return self.SECRET_KEY
+    
+    @property
+    def jwt_algorithm(self) -> str:
+        """JWT algorithm alias for compatibility"""
+        return self.ALGORITHM
     
     class Config:
         env_file = ".env"

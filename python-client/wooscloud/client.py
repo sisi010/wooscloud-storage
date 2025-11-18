@@ -73,7 +73,7 @@ class WoosCloudClient:
                 files=files,
                 data=data,
                 headers=headers,
-                timeout=30
+                timeout=120
             )
             
             # Handle errors

@@ -17,6 +17,9 @@ from app.services.quota_manager import check_api_calls_quota, increment_api_call
 
 router = APIRouter()
 
+# ============================================================================
+# CREATE WEBHOOK
+# ============================================================================
 @router.post("/webhooks", response_model=WebhookResponse, status_code=status.HTTP_201_CREATED)
 async def create_webhook(
     webhook_data: WebhookCreate,
@@ -78,55 +81,106 @@ async def create_webhook(
             detail=f"Failed to create webhook: {str(e)}"
         )
 
-@router.get("/webhooks", response_model=WebhookList)
-async def list_webhooks(
+# ============================================================================
+# GET WEBHOOK BY ID (MUST BE BEFORE LIST!)
+# ============================================================================
+@router.get("/webhooks/{webhook_id}")
+async def get_webhook(
+    webhook_id: str,
     current_user: dict = Depends(verify_api_key)
 ):
     """
-    List all webhooks
+    Get webhook details by ID
     
-    Returns all webhooks configured for the authenticated user.
+    Args:
+        webhook_id: Webhook ID
+    
+    Returns:
+        Webhook details
     """
-    
     await check_api_calls_quota(current_user["_id"])
     
     try:
-        db = await get_database()
-        webhook_service = WebhookService(db)
+        from bson import ObjectId
         
-        # Get webhooks
-        webhooks = await webhook_service.get_webhooks(str(current_user["_id"]))
+        db = await get_database()
+        
+        user_id = current_user["_id"]
+        
+        # Debug logs
+        print(f"🔍 DEBUG: Looking for webhook")
+        print(f"   webhook_id: {webhook_id}")
+        print(f"   user_id: {user_id}")
+        print(f"   user_id type: {type(user_id)}")
+        
+        # Try finding webhook with different user_id formats
+        webhook = await db.webhooks.find_one({
+            "_id": ObjectId(webhook_id),
+            "user_id": user_id
+        })
+        
+        if not webhook:
+            print(f"   Trying as string...")
+            webhook = await db.webhooks.find_one({
+                "_id": ObjectId(webhook_id),
+                "user_id": str(user_id)
+            })
+        
+        if not webhook:
+            print(f"   Trying as ObjectId...")
+            try:
+                webhook = await db.webhooks.find_one({
+                    "_id": ObjectId(webhook_id),
+                    "user_id": ObjectId(user_id)
+                })
+            except:
+                pass
+        
+        if not webhook:
+            print(f"   ❌ Webhook not found with any user_id format!")
+            
+            # Debug: Check if webhook exists at all
+            webhook_exists = await db.webhooks.find_one({
+                "_id": ObjectId(webhook_id)
+            })
+            
+            if webhook_exists:
+                print(f"   ⚠️  Webhook exists but user_id mismatch!")
+                print(f"      Stored user_id: {webhook_exists.get('user_id')}")
+                print(f"      Stored user_id type: {type(webhook_exists.get('user_id'))}")
+            else:
+                print(f"   ⚠️  Webhook does not exist at all!")
+            
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Webhook not found or does not belong to user"
+            )
+        
+        print(f"   ✅ Webhook found!")
+        
+        # Convert ObjectId to string
+        webhook["id"] = str(webhook.pop("_id"))
+        if isinstance(webhook.get("user_id"), ObjectId):
+            webhook["user_id"] = str(webhook["user_id"])
         
         await increment_api_calls(current_user["_id"])
         
-        # Format response
-        webhook_list = []
-        for webhook in webhooks:
-            webhook_list.append(WebhookResponse(
-                id=str(webhook["_id"]),
-                url=webhook["url"],
-                events=webhook["events"],
-                secret=webhook["secret"],
-                is_active=webhook["is_active"],
-                description=webhook.get("description"),
-                created_at=webhook["created_at"].isoformat(),
-                last_triggered=webhook["last_triggered"].isoformat() if webhook.get("last_triggered") else None,
-                success_count=webhook.get("success_count", 0),
-                failure_count=webhook.get("failure_count", 0)
-            ))
+        return webhook
         
-        return WebhookList(
-            success=True,
-            webhooks=webhook_list,
-            total=len(webhook_list)
-        )
-        
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list webhooks: {str(e)}"
+            detail=f"Failed to get webhook: {str(e)}"
         )
 
+# ============================================================================
+# DELETE WEBHOOK
+# ============================================================================
 @router.delete("/webhooks/{webhook_id}")
 async def delete_webhook(
     webhook_id: str,
@@ -172,6 +226,9 @@ async def delete_webhook(
             detail=f"Failed to delete webhook: {str(e)}"
         )
 
+# ============================================================================
+# TEST WEBHOOK
+# ============================================================================
 @router.post("/webhooks/{webhook_id}/test", response_model=WebhookTestResponse)
 async def test_webhook(
     webhook_id: str,
@@ -210,6 +267,9 @@ async def test_webhook(
             detail=f"Failed to test webhook: {str(e)}"
         )
 
+# ============================================================================
+# GET WEBHOOK LOGS
+# ============================================================================
 @router.get("/webhooks/{webhook_id}/logs")
 async def get_webhook_logs(
     webhook_id: str,
@@ -275,4 +335,56 @@ async def get_webhook_logs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get webhook logs: {str(e)}"
+        )
+
+# ============================================================================
+# LIST WEBHOOKS (MUST BE LAST!)
+# ============================================================================
+@router.get("/webhooks", response_model=WebhookList)
+async def list_webhooks(
+    current_user: dict = Depends(verify_api_key)
+):
+    """
+    List all webhooks
+    
+    Returns all webhooks configured for the authenticated user.
+    """
+    
+    await check_api_calls_quota(current_user["_id"])
+    
+    try:
+        db = await get_database()
+        webhook_service = WebhookService(db)
+        
+        # Get webhooks
+        webhooks = await webhook_service.get_webhooks(str(current_user["_id"]))
+        
+        await increment_api_calls(current_user["_id"])
+        
+        # Format response
+        webhook_list = []
+        for webhook in webhooks:
+            webhook_list.append(WebhookResponse(
+                id=str(webhook["_id"]),
+                url=webhook["url"],
+                events=webhook["events"],
+                secret=webhook["secret"],
+                is_active=webhook["is_active"],
+                description=webhook.get("description"),
+                created_at=webhook["created_at"].isoformat(),
+                last_triggered=webhook["last_triggered"].isoformat() if webhook.get("last_triggered") else None,
+                success_count=webhook.get("success_count", 0),
+                failure_count=webhook.get("failure_count", 0)
+            ))
+        
+        return WebhookList(
+            success=True,
+            webhooks=webhook_list,
+            total=len(webhook_list)
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list webhooks: {str(e)}"
         )

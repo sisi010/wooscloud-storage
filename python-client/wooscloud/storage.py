@@ -271,6 +271,7 @@ class WoosStorage:
         collection: str,
         query: str,
         fields: Optional[List[str]] = None,
+        filters: Optional[Dict[str, Any]] = None,
         limit: int = 10,
         skip: int = 0
     ) -> Dict[str, Any]:
@@ -281,23 +282,28 @@ class WoosStorage:
             collection: Collection name
             query: Search query text
             fields: List of fields to search (optional, searches all if not specified)
+            filters: Additional filters to apply (optional)
             limit: Maximum results
             skip: Number of results to skip (pagination)
         
         Returns:
-            Search results with metadata
+            Dict with 'total' and 'items' keys
+            - total: Total number of matching documents
+            - items: List of StorageData objects
         
         Example:
             >>> # Search all fields
             >>> results = storage.search("products", "laptop")
-            >>> for item in results["results"]:
-            ...     print(item["data"]["name"])
+            >>> print(f"Found {results['total']} items")
+            >>> for item in results["items"]:
+            ...     print(item.data["name"])
             
-            >>> # Search specific fields
+            >>> # Search specific fields with filters
             >>> results = storage.search(
             ...     collection="products",
             ...     query="gaming",
-            ...     fields=["name", "description"]
+            ...     fields=["name", "description"],
+            ...     filters={"category": "Electronics"}
             ... )
         """
         if not collection:
@@ -315,7 +321,21 @@ class WoosStorage:
         if fields:
             params["fields"] = ",".join(fields)
         
-        return self.client.get("/api/search", params=params)
+        if filters:
+            for key, value in filters.items():
+                params[f"filter_{key}"] = value
+        
+        response = self.client.get("/api/search", params=params)
+        result = response
+        
+        # Convert results to StorageData objects
+        items_data = result.get("results", result.get("items", []))
+        items = [StorageData(**item) for item in items_data]
+        
+        return {
+            "total": result.get("total", len(items)),
+            "items": items
+        }
     
     def autocomplete(
         self,
@@ -361,3 +381,81 @@ class WoosStorage:
         
         response = self.client.get("/api/autocomplete", params=params)
         return response.get("suggestions", [])
+    
+    def export(
+        self,
+        collection: str,
+        format: str = "json",
+        fields: Optional[List[str]] = None,
+        output_file: Optional[str] = None
+    ) -> Optional[bytes]:
+        """
+        Export data from a collection
+    
+        Args:
+           collection: Collection name
+            format: Export format (json, csv, xlsx)
+            fields: Optional list of fields to include
+            output_file: Optional output file path
+        
+        Returns:
+            File content as bytes if no output_file, None if saved
+            
+        Example:
+            >>> # Export to JSON
+            >>> storage.export("products", format="json", output_file="products.json")
+        
+            >>> # Export to CSV with specific fields
+            >>> storage.export("products", format="csv", 
+            ...                fields=["name", "price"], output_file="products.csv")
+        
+            >>> # Export to Excel
+            >>> storage.export("products", format="xlsx", output_file="products.xlsx")
+        """
+        if not collection:
+            raise ValidationError("Collection name is required")
+    
+        params = {
+            "collection": collection,
+            "format": format
+        }
+    
+        if fields:
+            params["fields"] = ",".join(fields)
+    
+        # Get raw response
+        response = self.client.get_raw("/api/export", params=params)
+    
+        if output_file:
+            # Save to file
+            with open(output_file, "wb") as f:
+                f.write(response.content)
+            return None
+        else:
+            return response.content
+
+    def export_preview(self, collection: str) -> Dict[str, Any]:
+        """
+        Preview export statistics
+    
+        Args:
+            collection: Collection name
+    
+        Returns:
+            Export preview information with 'record_count' and 'estimated_size_bytes'
+    
+        Example:
+            >>> preview = storage.export_preview("products")
+            >>> print(f"Records: {preview['record_count']}")
+            >>> print(f"Size: {preview['estimated_size_bytes']} bytes")
+        """
+        if not collection:
+            raise ValidationError("Collection name is required")
+
+        result = self.client.get("/api/export/preview", params={"collection": collection})
+    
+        # Fix: Ensure estimated_size_bytes exists
+        if "estimated_size_bytes" not in result:
+            result["estimated_size_bytes"] = result.get("estimated_size", 0)
+    
+        return result
