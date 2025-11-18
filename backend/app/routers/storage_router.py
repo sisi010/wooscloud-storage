@@ -1,6 +1,7 @@
 """
 Storage router
 Handles CRUD operations for cloud storage with R2 integration and Webhooks
+OPTIMIZED VERSION with caching and indexing
 """
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
@@ -15,6 +16,12 @@ from app.services.quota_manager import (
     check_api_calls_quota,
     increment_api_calls,
     update_storage_usage
+)
+from app.utils.performance_optimization import (
+    get_storage_stats_optimized,
+    get_storage_list_optimized,
+    get_collection_counts_optimized,
+    cache
 )
 from app.database import get_database
 from app.config import settings
@@ -73,6 +80,10 @@ async def create_data(
         
         # Increment API calls counter
         await increment_api_calls(current_user["_id"])
+        
+        # Clear cache for this user
+        await cache.delete(f"stats:{current_user['_id']}")
+        await cache.delete(f"collections:{current_user['_id']}")
         
         # Trigger webhook
         try:
@@ -175,45 +186,42 @@ async def list_data(
     skip: int = Query(0, ge=0, description="Number of results to skip"),
     current_user: dict = Depends(verify_api_key)
 ):
-    """List all data entries with optional collection filter and R2 support"""
+    """
+    List all data entries (OPTIMIZED)
+    Uses indexes and projection for better performance
+    """
     
     db = await get_database()
-    
-    logger.info(f"[LIST] User ID: {current_user['_id']}")
     
     # Check API calls quota
     await check_api_calls_quota(current_user["_id"])
     
-    # Build query
+    # Use optimized version
+    documents = await get_storage_list_optimized(
+        db,
+        str(current_user["_id"]),
+        skip,
+        limit,
+        collection
+    )
+    
+    # Get total count
     query = {"user_id": str(current_user["_id"])}
     if collection:
         query["collection"] = collection
-    
-    # Get data (metadata only)
-    cursor = db.storage_data.find(query).skip(skip).limit(limit).sort("created_at", -1)
-    data_list = await cursor.to_list(length=limit)
-    
-    # Get total count
     total_count = await db.storage_data.count_documents(query)
     
     # Format response
     formatted_data = []
-    for item in data_list:
+    for doc in documents:
         formatted_item = {
-            "id": str(item["_id"]),
-            "collection": item["collection"],
-            "size": item["size"],
-            "storage_type": item.get("storage_type", "mongodb"),
-            "created_at": item["created_at"].isoformat(),
-            "updated_at": item["updated_at"].isoformat()
+            "id": str(doc["_id"]),
+            "collection": doc.get("collection", "unknown"),
+            "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+            "updated_at": doc.get("updated_at").isoformat() if doc.get("updated_at") else None,
+            "tags": doc.get("tags", []),
+            "metadata": doc.get("metadata", {})
         }
-        
-        # Include data if stored in MongoDB
-        if item.get("storage_type") == "mongodb":
-            formatted_item["data"] = item.get("data")
-        else:
-            formatted_item["data_preview"] = item.get("data_preview", "")
-        
         formatted_data.append(formatted_item)
     
     # Increment API calls counter
@@ -263,16 +271,7 @@ async def update_data(
             detail="Data not found"
         )
     
-    collection_name = doc["collection"]
-    
-    # Calculate size difference
     old_size = doc["size"]
-    new_size = len(str(update_data.data))
-    size_diff = new_size - old_size
-    
-    # Check storage quota (only if size increased)
-    if size_diff > 0:
-        await check_storage_quota(current_user["_id"], size_diff)
     
     # Initialize smart router
     smart_router = SmartStorageRouter(
@@ -281,19 +280,27 @@ async def update_data(
     )
     
     # Update
-    success = await smart_router.update(data_id, update_data.data)
+    updated_doc = await smart_router.update(data_id, update_data.data)
     
-    if not success:
+    if not updated_doc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update data"
         )
     
+    # Calculate size difference
+    new_size = updated_doc["size"]
+    size_diff = new_size - old_size
+    
     # Update storage usage
-    await update_storage_usage(current_user["_id"], size_diff)
+    if size_diff != 0:
+        await update_storage_usage(current_user["_id"], size_diff)
     
     # Increment API calls counter
     await increment_api_calls(current_user["_id"])
+    
+    # Clear cache
+    await cache.delete(f"stats:{current_user['_id']}")
     
     # Trigger webhook
     try:
@@ -303,7 +310,7 @@ async def update_data(
             event="data.updated",
             payload={
                 "id": data_id,
-                "collection": collection_name,
+                "collection": doc["collection"],
                 "size_change": size_diff
             }
         )
@@ -374,6 +381,10 @@ async def delete_data(
     # Increment API calls counter
     await increment_api_calls(current_user["_id"])
     
+    # Clear cache
+    await cache.delete(f"stats:{current_user['_id']}")
+    await cache.delete(f"collections:{current_user['_id']}")
+    
     # Trigger webhook
     try:
         webhook_service = WebhookService(db)
@@ -398,11 +409,18 @@ async def delete_data(
 @router.get("/stats", response_model=dict)
 async def get_stats(current_user: dict = Depends(verify_api_key)):
     """
-    Get storage usage statistics
+    Get storage usage statistics (OPTIMIZED)
+    Uses caching and aggregation for better performance
     """
     db = await get_database()
     
-    # Get fresh user data
+    # Use optimized version with caching
+    optimized_stats = await get_storage_stats_optimized(
+        db, 
+        str(current_user["_id"])
+    )
+    
+    # Get user-specific data
     user = await db.users.find_one({"_id": current_user["_id"]})
     
     storage_used = user.get("storage_used", 0)
@@ -439,24 +457,33 @@ async def get_stats(current_user: dict = Depends(verify_api_key)):
                 "limit": api_calls_limit,
                 "remaining": max(0, api_calls_limit - api_calls_count)
             },
-            "storage_distribution": {
+            "documents": {
+                "total": optimized_stats.get("total_documents", 0),
+                "collections": optimized_stats.get("total_collections", 0),
                 "mongodb": mongodb_count,
-                "r2": r2_count,
-                "total": mongodb_count + r2_count
+                "r2": r2_count
             },
             "plan": user.get("plan", "free"),
-            "r2_enabled": settings.R2_ENABLED
+            "r2_enabled": settings.R2_ENABLED,
+            "from_cache": optimized_stats.get("from_cache", False)
         }
     }
 
 @router.get("/collections", response_model=dict)
 async def list_collections(current_user: dict = Depends(verify_api_key)):
     """
-    List all collections with statistics
+    List all collections with statistics (OPTIMIZED)
+    Uses caching and aggregation
     """
     db = await get_database()
     
-    # Aggregate collections
+    # Use optimized version with caching
+    collection_counts = await get_collection_counts_optimized(
+        db,
+        str(current_user["_id"])
+    )
+    
+    # Aggregate detailed stats
     pipeline = [
         {"$match": {"user_id": str(current_user["_id"])}},
         {"$group": {
@@ -528,4 +555,4 @@ async def get_rate_limit_info(current_user: dict = Depends(verify_api_key)):
                 "reset": stats.get("month", {}).get("reset_time")
             }
         }
-    }   
+    }
