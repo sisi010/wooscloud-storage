@@ -56,6 +56,8 @@ from app.routers import analytics_router
 from app.routers import mobile_sdk_router
 from app.routers import desktop_sync_router
 from app.routers import object_lock_router
+from app.routers import ocr_router
+from app.routers import advanced_search_router
    
 r2_storage_instance = None
 if settings.R2_ENABLED:
@@ -303,6 +305,8 @@ app.include_router(analytics_router.router, prefix="/api")
 app.include_router(mobile_sdk_router.router, prefix="/api")
 app.include_router(desktop_sync_router.router, prefix="/api")
 app.include_router(object_lock_router.router, prefix="/api")
+app.include_router(ocr_router.router, prefix="/api")
+app.include_router(advanced_search_router.router, prefix="/api")
 
 
 # DEBUG: Print all routes

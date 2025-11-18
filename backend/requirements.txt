@@ -39,3 +39,7 @@ croniter==2.0.1
 
 # Cryptography (for AES encryption)
 cryptography==41.0.7
+
+# OCR (Optical Character Recognition)
+pytesseract==0.3.10
+pdf2image==1.16.3
